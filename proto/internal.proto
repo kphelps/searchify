@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package searchify;
+
+service Internal {
+  rpc Hello(HelloRequest) returns (HelloResponse) {}
+  rpc RaftMessage(SearchifyRaftMessage) returns (EmptyResponse) {}
+}
+
+message HelloRequest {
+  uint64 peer_id = 1;
+}
+
+message HelloResponse {
+  uint64 peer_id = 1;
+}
+
+message SearchifyRaftMessage {
+  bytes wrapped_message = 1;
+}
+
+message EmptyResponse {
+}

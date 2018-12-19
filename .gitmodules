@@ -1,0 +1,3 @@
+[submodule "third-party/raft-rs"]
+	path = third-party/raft-rs
+	url = git@github.com:pingcap/raft-rs.git
