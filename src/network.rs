@@ -44,7 +44,10 @@ impl Internal for InternalServer {
         sink: UnarySink<HelloResponse>,
     ) {
         info!("Connection from peer '{}'", req.peer_id);
-        let request = self.network.send(PeerConnected{peer_id: req.peer_id}).into_future();
+        let request = self.network.send(PeerConnected{
+            is_master: req.is_master,
+            peer_id: req.peer_id,
+        });
         Arbiter::spawn(request.map(|_| ()).map_err(|err| error!("{}", err)));
         let mut resp = HelloResponse::new();
         resp.peer_id = self.peer_id;
@@ -60,7 +63,10 @@ impl Internal for InternalServer {
     ) {
         let network = self.network.clone();
         let raft_message = parse_from_bytes::<eraftpb::Message>(&req.wrapped_message).unwrap();
-        let f = network.send(RaftMessageReceived(raft_message));
+        let f = network.send(RaftMessageReceived{
+            raft_group_id: req.raft_group_id,
+            message: raft_message,
+        });
         Arbiter::spawn(f.map(|_| ()).map_err(|e| error!("{}", e)));
         ctx.spawn(sink.success(EmptyResponse::new()).map_err(|_| ()));
     }
@@ -71,12 +77,13 @@ pub struct NetworkActor {
     seeds: Vec<String>,
     peers: Rc<RefCell<HashMap<u64, InternalClient>>>,
     server: Option<Server>,
-    raft: Addr<RaftClient>,
+    raft_groups: HashMap<u64, Addr<RaftClient>>,
 }
 
 #[derive(Message)]
 #[rtype(result="Result<(), Error>")]
 pub struct SendRaftMessage {
+    pub raft_group_id: u64,
     pub message: eraftpb::Message,
 }
 
@@ -95,18 +102,22 @@ fn grpc_timeout(n: u64) -> CallOption {
     CallOption::default().timeout(Duration::from_secs(n))
 }
 
+const GLOBAL_RAFT_ID: u64 = 0;
+
 impl NetworkActor {
     fn new(
         peer_id: u64,
         peers: &[String],
         raft: Addr<RaftClient>,
     ) -> Self {
+        let mut raft_groups = HashMap::new();
+        raft_groups.insert(GLOBAL_RAFT_ID, raft);
         Self{
             peer_id: peer_id,
             seeds: peers.to_vec(),
             peers: Rc::new(RefCell::new(HashMap::new())),
             server: None,
-            raft,
+            raft_groups,
         }
     }
 
@@ -149,6 +160,10 @@ impl NetworkActor {
             })
             .map_err(|e| e.into())
     }
+
+    fn global_raft(&self) -> Option<&Addr<RaftClient>> {
+        self.raft_groups.get(&GLOBAL_RAFT_ID)
+    }
 }
 
 impl Actor for NetworkActor {
@@ -184,7 +199,13 @@ impl Handler<RaftMessageReceived> for NetworkActor {
     type Result = ResponseFuture<(), Error>;
 
     fn handle(&mut self, message: RaftMessageReceived, _ctx: &mut Context<Self>) -> Self::Result {
-        let f = self.raft.send(message)
+        let raft = self.raft_groups.get(&message.raft_group_id);
+        if raft.is_none() {
+            error!("Unknown raft group: {}", message.raft_group_id);
+            return Box::new(future::ok(()))
+        }
+        let f = raft.unwrap()
+            .send(message)
             .map_err(|e| e.into())
             .and_then(|r| r);
         Box::new(f)
@@ -195,7 +216,12 @@ impl Handler<PeerConnected> for NetworkActor {
     type Result = ResponseFuture<(), Error>;
 
     fn handle(&mut self, message: PeerConnected, _ctx: &mut Context<Self>) -> Self::Result {
-        let f = self.raft.send(message)
+        let maybe_global = self.global_raft();
+        if maybe_global.is_none() {
+            return Box::new(future::ok(()))
+        }
+        let f = maybe_global.unwrap()
+            .send(message)
             .map_err(|e| e.into())
             .and_then(|r| r);
         Box::new(f)
@@ -205,12 +231,14 @@ impl Handler<PeerConnected> for NetworkActor {
 impl Handler<SendRaftMessage> for NetworkActor {
     type Result = ResponseFuture<(), Error>;
 
-    fn handle(&mut self, message: SendRaftMessage, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, message: SendRaftMessage, ctx: &mut Context<Self>) -> Self::Result {
         let mut out = SearchifyRaftMessage::new();
         out.wrapped_message = message.message.write_to_bytes().unwrap();
         if message.message.to == self.peer_id {
-            let self_message = RaftMessageReceived(message.message);
-            Box::new(self.raft.send(self_message).map_err(|e| e.into()).and_then(|r| r))
+            self.handle(RaftMessageReceived{
+                raft_group_id: message.raft_group_id,
+                message: message.message,
+            }, ctx)
         } else {
             let peers = self.peers.borrow();
             let maybe_peer = peers.get(&message.message.to);

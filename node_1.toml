@@ -1,0 +1,5 @@
+storage_root = "./data_1"
+seeds = [
+  "localhost:11667",
+  "localhost:11668",
+]

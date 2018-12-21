@@ -9,6 +9,7 @@ service Internal {
 
 message HelloRequest {
   uint64 peer_id = 1;
+  bool is_master = 2;
 }
 
 message HelloResponse {
@@ -17,7 +18,30 @@ message HelloResponse {
 
 message SearchifyRaftMessage {
   bytes wrapped_message = 1;
+  uint64 raft_group_id = 2;
 }
 
 message EmptyResponse {
+}
+
+message RaftLocalState {
+  uint64 term = 1;
+  uint64 vote = 2;
+  uint64 commit = 3;
+  uint64 last_index = 4;
+}
+
+message ApplyState {
+  uint64 applied_index = 1;
+  uint64 truncated_index = 2;
+  uint64 truncated_term = 3;
+}
+
+message RaftGroup {
+  uint64 id = 1;
+  repeated Peer peers
+}
+
+message Peer {
+  uint64 id = 1;
 }

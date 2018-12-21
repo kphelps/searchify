@@ -9,7 +9,9 @@ actix = "*"
 actix_derive = "*"
 actix-web = "*"
 actix-web-async-await = "*"
+byteorder = "*"
 clap = "*"
+config = "*"
 env_logger = "*"
 grpcio = "*"
 failure = "*"
@@ -26,6 +28,9 @@ tarpc = "*"
 tokio = "*"
 tokio-async-await = "*"
 uuid = "*"
+
+[dependencies.rocksdb]
+git = "https://github.com/pingcap/rust-rocksdb.git"
 
 [build-dependencies]
 protoc-grpcio = "*"

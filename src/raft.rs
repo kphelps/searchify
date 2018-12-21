@@ -3,6 +3,8 @@ use crate::network::{
     NetworkActor,
     SendRaftMessage,
 };
+use crate::raft_storage::RaftStorage;
+use crate::storage_engine::MessageWriteBatch;
 use failure::Error;
 use futures::Future;
 use log::{error, info};
@@ -17,7 +19,6 @@ use raft::{
         RawNode,
         Ready,
     },
-    storage::MemStorage,
 };
 use std::boxed::Box;
 use std::cell::RefCell;
@@ -27,8 +28,9 @@ use tokio_async_await::compat::backward::Compat;
 
 struct RaftState {
     network: Option<Addr<NetworkActor>>,
-    raft_node: RawNode<MemStorage>,
+    raft_node: RawNode<RaftStorage>,
     node_id: u64,
+    raft_group_id: u64,
 }
 
 pub struct RaftClient {
@@ -48,20 +50,27 @@ struct ProposeMessage {
 
 #[derive(Message)]
 #[rtype(result="Result<(), Error>")]
-pub struct RaftMessageReceived(pub eraftpb::Message);
+pub struct RaftMessageReceived{
+    pub raft_group_id: u64,
+    pub message: eraftpb::Message,
+}
 
 #[derive(Message)]
 #[rtype(result="Result<(), Error>")]
 pub struct PeerConnected {
     pub peer_id: u64,
+    pub is_master: bool,
 }
 
 #[derive(Message)]
 pub struct InitNetwork(pub Addr<NetworkActor>);
 
 impl RaftClient {
-    pub fn new(node_id: u64) -> Result<Self, Error> {
-        let state = RaftState::new(node_id)?;
+    pub fn new(
+        node_id: u64,
+        storage: RaftStorage,
+    ) -> Result<Self, Error> {
+        let state = RaftState::new(node_id, storage)?;
         Ok(Self {
             tick_interval: Duration::from_millis(100),
             state: Rc::new(RefCell::new(state)),
@@ -95,6 +104,10 @@ impl RaftClient {
             .map_err(|e| e.into())
     }
 
+    fn raft_node_connected(&self, _id: u64) -> Result<(), Error> {
+        Ok(())
+    }
+
     fn schedule_next_tick(&self, ctx: &mut Context<Self>) {
         ctx.notify_later(TickMessage, self.tick_interval);
     }
@@ -102,26 +115,25 @@ impl RaftClient {
 
 impl RaftState {
 
-    pub fn new(node_id: u64) -> Result<Self, Error> {
+    pub fn new(
+        node_id: u64,
+        storage: RaftStorage,
+    ) -> Result<Self, Error> {
         let config = Config {
             id: node_id,
-            peers: vec![node_id],
+            peers: vec![],
             heartbeat_tick: 3,
             election_tick: 10,
             ..Default::default()
         };
-        let storage = MemStorage::new();
         config.validate()?;
-        let peers: Vec<Peer> = vec![1u64, 2, 3]
-            .into_iter()
-            .filter(|n| *n != node_id)
-            .map(|n| Peer{id: n, context: None})
-            .collect();
-        let node = RawNode::new(&config, storage, peers)?;
+        let raft_group_id = storage.raft_group_id();
+        let node = RawNode::new(&config, storage, vec![])?;
         Ok(Self {
             network: None,
             raft_node: node,
-            node_id: node_id,
+            node_id,
+            raft_group_id,
         })
     }
 
@@ -136,13 +148,15 @@ impl RaftState {
         if state.is_leader() {
             state.send_messages(&mut ready);
         }
+        let mut batch = state.raft_node.mut_store().batch();
         state.apply_snapshot(&ready)?;
-        state.append_entries(&ready)?;
-        state.apply_hardstate(&ready);
+        state.append_entries(&ready, &mut batch)?;
+        state.apply_hardstate(&ready, &mut batch)?;
         if !state.is_leader() {
             state.send_messages(&mut ready);
         }
-        state.apply_committed_entries(&ready)?;
+        state.apply_committed_entries(&ready, &mut batch)?;
+        batch.commit()?;
         state.advance_raft(ready);
         let _ = state.compact();
         Ok(())
@@ -156,40 +170,53 @@ impl RaftState {
         if !raft::is_empty_snap(&ready.snapshot) {
             self.raft_node
                 .mut_store()
-                .wl()
                 .apply_snapshot(ready.snapshot.clone())?
         }
         Ok(())
     }
 
-    fn append_entries(&mut self, ready: &Ready) -> Result<(), Error> {
+    fn append_entries(
+        &mut self,
+        ready: &Ready,
+        batch: &mut MessageWriteBatch,
+    ) -> Result<(), Error> {
         self.raft_node
             .mut_store()
-            .wl()
-            .append(&ready.entries)
-            .map_err(|e| e.into())
+            .append(&ready.entries, batch)
     }
 
-    fn apply_hardstate(&mut self, ready: &Ready) {
+    fn apply_hardstate(
+        &mut self,
+        ready: &Ready,
+        batch: &mut MessageWriteBatch,
+    ) -> Result<(), Error> {
         if let Some(ref hardstate) = ready.hs {
             self.raft_node
                 .mut_store()
-                .wl()
-                .set_hardstate(hardstate.clone());
+                .set_hardstate(hardstate, batch)?;
         }
+        Ok(())
     }
 
     fn send_messages(&self, ready: &mut Ready) {
         for message in ready.messages.drain(..) {
             let f = self.network.as_ref().unwrap()
-                .send(SendRaftMessage{message: message})
+                .send(SendRaftMessage{
+                    raft_group_id: self.raft_group_id,
+                    message: message
+                })
                 .map(|_| ())
                 .map_err(|e| error!("Error sending message: {}", e));
             Arbiter::spawn(f);
         }
     }
 
-    fn apply_committed_entries(&mut self, ready: &Ready) -> Result<(), Error> {
+    fn apply_committed_entries(
+        &mut self,
+        ready: &Ready,
+        batch: &mut MessageWriteBatch,
+    ) -> Result<(), Error> {
+        let mut batch = self.raft_node.mut_store().batch();
         if let Some(ref committed_entries) = ready.committed_entries {
             let mut last_apply_index = 0;
             let mut conf_state = None;
@@ -210,9 +237,12 @@ impl RaftState {
                 }
             }
             if last_apply_index > 0 {
-                let mut mem = self.raft_node.mut_store().wl();
-                mem.create_snapshot(last_apply_index, conf_state, vec![])?;
+                self.raft_node
+                    .mut_store()
+                    .create_snapshot(last_apply_index, conf_state, vec![])?;
             }
+            self.raft_node.mut_store().update_apply_index(last_apply_index);
+            self.raft_node.mut_store().persist_apply_state(&mut batch)?;
         }
         Ok(())
     }
@@ -225,10 +255,10 @@ impl RaftState {
 
         match cc.get_change_type() {
             eraftpb::ConfChangeType::AddNode => {
-                // self.node.mut_store().wl().add_node(peer);
+                self.node.mut_store().add_node(peer);
             }
             eraftpb::ConfChangeType::RemoveNode => {
-                // self.node.mut_store().wl().remove_node(cc.node_id);
+                self.node.mut_store().remove_node(cc.node_id);
             }
             _ => (), // no learners right now
         }
@@ -244,7 +274,7 @@ impl RaftState {
 
     fn compact(&mut self) -> Result<(), Error> {
         let raft_applied = self.raft_node.raft.raft_log.get_applied();
-        Ok(self.raft_node.mut_store().wl().compact(raft_applied)?)
+        self.raft_node.mut_store().compact(raft_applied)
     }
 }
 
@@ -294,7 +324,7 @@ impl Handler<RaftMessageReceived> for RaftClient {
     fn handle(&mut self, message: RaftMessageReceived, _ctx: &mut Context<Self>)
         -> Self::Result
     {
-        self.raft_step(message.0)
+        self.raft_step(message.message)
     }
 }
 
@@ -302,6 +332,10 @@ impl Handler<PeerConnected> for RaftClient  {
     type Result = Result<(), Error>;
 
     fn handle(&mut self, message: PeerConnected, _ctx: &mut Context<Self>) -> Self::Result {
-        self.raft_peer_connected(message.peer_id)
+        if message.is_master {
+            self.raft_peer_connected(message.peer_id)
+        } else {
+            self.raft_node_connected(message.peer_id)
+        }
     }
 }

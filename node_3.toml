@@ -1,0 +1,7 @@
+storage_root = "./data_3"
+node_id = 3
+port = 11668
+seeds = [
+  "localhost:11666",
+  "localhost:11667",
+]
