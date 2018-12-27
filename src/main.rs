@@ -8,17 +8,15 @@
 use clap::{Arg, App};
 use failure::Error;
 use log::error;
-use rand;
 
 mod config;
-mod cluster;
+mod key_value_state_machine;
 mod network;
 mod node;
 mod proto;
 mod raft;
-mod raft_group;
 mod raft_storage;
-mod replica_set;
+mod search_state_machine;
 mod storage_engine;
 mod web;
 
@@ -45,6 +43,6 @@ fn start() -> Result<(), Error> {
         .get_matches();
 
     let config_path = matches.value_of("config").unwrap();
-    let mut settings = config::Config::new(config_path)?;
+    let settings = config::Config::new(config_path)?;
     node::run(&settings)
 }

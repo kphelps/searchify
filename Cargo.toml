@@ -34,3 +34,6 @@ git = "https://github.com/pingcap/rust-rocksdb.git"
 
 [build-dependencies]
 protoc-grpcio = "*"
+
+[dev-dependencies]
+tempfile = "*"

@@ -1,9 +1,11 @@
 use byteorder::{BigEndian, ByteOrder};
-use crate::proto::{ApplyState, RaftLocalState};
-use crate::raft_group::RaftGroup;
+use crate::proto::{
+    ApplyState,
+    RaftGroupMetaState,
+    RaftLocalState,
+};
 use crate::storage_engine::{MessageWriteBatch, StorageEngine};
 use failure::Error;
-use log::info;
 use protobuf::Message;
 use raft::{
     Error as RaftError,
@@ -23,24 +25,30 @@ use raft::{
 };
 
 pub struct RaftStorage {
-    raft_group: RaftGroup,
+    raft_group: RaftGroupMetaState,
     engine: StorageEngine,
     state: RaftLocalState,
     apply_state: ApplyState,
     last_term: u64,
 }
 
-const LOCAL_PREFIX: u8 = 0x01;
+
+pub const LOCAL_PREFIX: u8 = 0x01;
+
 const LOCAL_RAFT_GROUP_PREFIX: u8 = 0x01;
 const LOCAL_RAFT_GROUP_PREFIX_KEY: &[u8] = &[LOCAL_PREFIX, LOCAL_RAFT_GROUP_PREFIX];
-
 const LOCAL_STATE_SUFFIX: u8 = 0x01;
 const RAFT_LOG_SUFFIX: u8 = 0x02;
 const APPLY_STATE_SUFFIX: u8 = 0x03;
 
+pub const RAFT_GROUP_META_PREFIX: u8 = 0x03;
+pub const RAFT_GROUP_META_PREFIX_KEY: &[u8] = &[LOCAL_PREFIX, RAFT_GROUP_META_PREFIX];
+const RAFT_GROUP_META_STATE_SUFFIX: u8 = 0x01;
+
+
 impl RaftStorage {
     pub fn new(
-        raft_group: RaftGroup,
+        raft_group: RaftGroupMetaState,
         engine: StorageEngine,
     ) -> Result<Self, Error> {
         let mut storage = Self {
@@ -64,7 +72,7 @@ impl RaftStorage {
         self.engine.batch()
     }
 
-    pub fn apply_snapshot(&self, snapshot: Snapshot) -> Result<(), Error> {
+    pub fn apply_snapshot(&self, _snapshot: Snapshot) -> Result<(), Error> {
         // TODO
         Ok(())
     }
@@ -75,12 +83,13 @@ impl RaftStorage {
         batch: &mut MessageWriteBatch,
     ) -> Result<(), Error> {
         for entry in entries {
-            info!("Applying: {:?}", entry);
             let key = self.raft_log_key(entry.index);
             batch.put(&key, entry)?;
         }
         if entries.len() > 0 {
-            self.state.last_index = entries[entries.len() - 1].index;
+            let last_entry = entries.last().unwrap();
+            self.state.last_index = last_entry.index;
+            self.last_term = last_entry.term;
         }
         Ok(())
     }
@@ -100,16 +109,18 @@ impl RaftStorage {
         self.apply_state.applied_index = last_apply_index;
     }
 
-    pub fn compact(&mut self, last_applied: u64) -> Result<(), Error> {
+    pub fn compact(&mut self, _last_applied: u64) -> Result<(), Error> {
+        // TODO
         Ok(())
     }
 
     pub fn create_snapshot(
         &mut self,
-        last_apply_index: u64,
-        conf_state: Option<ConfState>,
-        data: Vec<u8>,
+        _last_apply_index: u64,
+        _conf_state: Option<ConfState>,
+        _data: Vec<u8>,
     ) -> Result<Snapshot, Error> {
+        // TODO
         Ok(Snapshot::default())
     }
 
@@ -144,7 +155,7 @@ impl RaftStorage {
 
     pub fn persist_apply_state(&self, batch: &mut MessageWriteBatch) -> Result<(), Error> {
         let key = self.apply_state_key();
-        self.engine.put_message(&key, &self.apply_state)
+        batch.put(&key, &self.apply_state)
     }
 
     fn init_last_term(&mut self) -> Result<(), Error> {
@@ -156,10 +167,6 @@ impl RaftStorage {
         // TODO check apply state
         self.last_term = self.entries(last_index, last_index + 1, NO_LIMIT)?[0].get_term();
         Ok(())
-    }
-
-    fn save_local_state(&self) -> Result<(), Error> {
-        self.engine.put_message(&self.local_state_key(), &self.state)
     }
 
     fn local_state_key(&self) -> [u8; 11]  {
@@ -187,6 +194,18 @@ impl RaftStorage {
         key[..11].copy_from_slice(&self.raft_group_prefix(suffix));
         BigEndian::write_u64(&mut key[11..19], sub_id);
         key
+    }
+
+    fn raft_group_meta_key(group_id: u64, suffix: u8) -> [u8; 11] {
+        let mut key = [0; 11];
+        key[..2].copy_from_slice(RAFT_GROUP_META_PREFIX_KEY);
+        BigEndian::write_u64(&mut key[2..10], group_id);
+        key[10] = suffix;
+        key
+    }
+
+    pub fn raft_group_meta_state_key(group_id: u64) -> [u8; 11] {
+        Self::raft_group_meta_key(group_id, RAFT_GROUP_META_STATE_SUFFIX)
     }
 
     fn hard_state(&self) -> HardState {
@@ -218,9 +237,12 @@ impl RaftStorage {
 
 impl Storage for RaftStorage {
     fn initial_state(&self) -> RaftResult<RaftState> {
+        let mut conf_state = ConfState::default();
+        self.raft_group.peers.iter().for_each(|p| {
+            conf_state.mut_nodes().push(p.id)
+        });
         Ok(RaftState {
-            // TODO?
-            conf_state: ConfState::default(),
+            conf_state: conf_state,
             hard_state: self.hard_state(),
         })
     }
@@ -242,7 +264,8 @@ impl Storage for RaftStorage {
             return Err(RaftError::Store(StorageError::Unavailable))
         }
 
-        Ok(result.unwrap()[0].term)
+        let term = result.unwrap()[0].term;
+        Ok(term)
     }
 
     fn first_index(&self) -> RaftResult<u64> {

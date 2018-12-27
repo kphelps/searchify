@@ -3,49 +3,101 @@ use crate::network::{
     NetworkActor,
     SendRaftMessage,
 };
+use crate::proto::EntryContext;
 use crate::raft_storage::RaftStorage;
 use crate::storage_engine::MessageWriteBatch;
 use failure::Error;
-use futures::Future;
-use log::{error, info};
-use protobuf::parse_from_bytes;
-use rand;
+use futures::prelude::*;
+use futures::sync::oneshot::Sender;
+use log::*;
+use protobuf::{parse_from_bytes, Message};
 use raft::{
     self,
     Config,
     eraftpb,
     raw_node::{
-        Peer,
         RawNode,
         Ready,
     },
+    storage:: {
+        Storage,
+    }
 };
 use std::boxed::Box;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 use tokio_async_await::compat::backward::Compat;
 
-struct RaftState {
+struct RaftState<T> {
+    state_machine: T,
     network: Option<Addr<NetworkActor>>,
     raft_node: RawNode<RaftStorage>,
     node_id: u64,
     raft_group_id: u64,
+    observers: HashMap<u64, Box<StateMachineObserver<T>>>,
 }
 
-pub struct RaftClient {
+pub struct RaftClient<T> {
     tick_interval: Duration,
-    state: Rc<RefCell<RaftState>>,
+    state: Rc<RefCell<RaftState<T>>>,
 }
 
 #[derive(Message)]
 #[rtype(result="Result<(), Error>")]
 struct TickMessage;
 
+pub trait StateMachineObserver<S> {
+    fn observe(self: Box<Self>, state_machine: &S);
+}
+
+pub struct FutureStateMachineObserver<T, F>
+{
+    sender: Sender<T>,
+    observe_impl: F,
+}
+
+impl<T, F> FutureStateMachineObserver<T, F> {
+    pub fn new(sender: Sender<T>, observe: F) -> Self {
+        Self {
+            sender,
+            observe_impl: observe,
+        }
+    }
+}
+
+impl <T, F, S> StateMachineObserver<S> for FutureStateMachineObserver<T, F>
+    where F: FnOnce(&S) -> T
+{
+    fn observe(self: Box<Self>, state_machine: &S) {
+        let result = (self.observe_impl)(state_machine);
+        if let Err(_) = self.sender.send(result) {
+            error!("Failed to observe state machine");
+        }
+    }
+}
+
 #[derive(Message)]
 #[rtype(result="Result<(), Error>")]
-struct ProposeMessage {
-    id: u8,
+pub struct RaftPropose<O, S>
+where S: RaftStateMachine,
+      O: StateMachineObserver<S>
+{
+    pub entry: <S as RaftStateMachine>::EntryType,
+    pub observer: O,
+}
+
+impl<O, S> RaftPropose<O, S>
+where S: RaftStateMachine,
+      O: StateMachineObserver<S>
+{
+    pub fn new(entry: S::EntryType, observer: O) -> Self {
+        Self {
+            entry,
+            observer,
+        }
+    }
 }
 
 #[derive(Message)]
@@ -65,12 +117,27 @@ pub struct PeerConnected {
 #[derive(Message)]
 pub struct InitNetwork(pub Addr<NetworkActor>);
 
-impl RaftClient {
+pub trait RaftStateMachine {
+    type EntryType: Message;
+
+    fn apply(&mut self, entry: Self::EntryType);
+}
+
+pub trait RaftEntryHandler<T> {
+    type Result;
+
+    fn handle(&mut self, entry: T) -> Self::Result;
+}
+
+impl<T> RaftClient<T>
+    where T: RaftStateMachine + 'static
+{
     pub fn new(
         node_id: u64,
         storage: RaftStorage,
+        state_machine: T,
     ) -> Result<Self, Error> {
-        let state = RaftState::new(node_id, storage)?;
+        let state = RaftState::new(node_id, storage, state_machine)?;
         Ok(Self {
             tick_interval: Duration::from_millis(100),
             state: Rc::new(RefCell::new(state)),
@@ -85,8 +152,14 @@ impl RaftClient {
         Compat::new(RaftState::raft_tick(self.state.clone()))
     }
 
-    fn raft_propose(&self, context: Vec<u8>, data: Vec<u8>) -> Result<(), Error> {
-        self.state.borrow_mut().raft_node.propose(context, data).map_err(|e| e.into())
+    // fn raft_propose(&self, context: Vec<u8>, data: Vec<u8>) -> Result<(), Error> {
+    //     self.state.borrow_mut().propose(context, data)
+    // }
+
+    fn raft_propose_entry<O>(&self, m: RaftPropose<O, T>) -> Result<(), Error>
+        where O: StateMachineObserver<T> + 'static
+    {
+        self.state.borrow_mut().propose_entry(m)
     }
 
     fn raft_step(&self, message: eraftpb::Message) -> Result<(), Error> {
@@ -113,11 +186,13 @@ impl RaftClient {
     }
 }
 
-impl RaftState {
-
+impl<T> RaftState<T>
+    where T: RaftStateMachine + 'static
+{
     pub fn new(
         node_id: u64,
         storage: RaftStorage,
+        state_machine: T,
     ) -> Result<Self, Error> {
         let config = Config {
             id: node_id,
@@ -128,21 +203,32 @@ impl RaftState {
         };
         config.validate()?;
         let raft_group_id = storage.raft_group_id();
-        let node = RawNode::new(&config, storage, vec![])?;
+        let initial_state = storage.initial_state()?;
+        let mut node = RawNode::new(&config, storage, vec![])?;
+
+        let peers = initial_state.conf_state.get_nodes();
+        if peers.len() == 1 && peers[0] == node_id {
+            node.campaign()?;
+        }
+
         Ok(Self {
             network: None,
             raft_node: node,
+            observers: HashMap::new(),
             node_id,
             raft_group_id,
+            state_machine,
         })
     }
 
-    async fn raft_tick(locked: Rc<RefCell<RaftState>>) -> Result<(), Error> {
+    async fn raft_tick(locked: Rc<RefCell<Self>>) -> Result<(), Error> {
         let mut state = locked.borrow_mut();
         state.raft_node.tick();
+        debug!("Tick()");
         if !state.raft_node.has_ready() {
             return Ok(());
         }
+        debug!("Ready!");
 
         let mut ready = state.raft_node.ready();
         if state.is_leader() {
@@ -160,6 +246,27 @@ impl RaftState {
         state.advance_raft(ready);
         let _ = state.compact();
         Ok(())
+    }
+
+    fn propose(&mut self, context: Vec<u8>, data: Vec<u8>) -> Result<(), Error> {
+        debug!("Propose({}, {})", context.len(), data.len());
+        self.raft_node.propose(context, data).map_err(|e| e.into())
+    }
+
+    fn propose_entry<O>(&mut self, m: RaftPropose<O, T>) -> Result<(), Error>
+        where O: StateMachineObserver<T> + 'static
+    {
+        let data = m.entry.write_to_bytes()?;
+        let id = rand::random::<u64>();
+        let mut ctx = EntryContext::new();
+        ctx.id = id;
+        let ctx_bytes = ctx.write_to_bytes()?;
+        self.observers.insert(id, Box::new(m.observer));
+        let result = self.propose(ctx_bytes, data);
+        if let Err(_) = result {
+            self.observers.remove(&id);
+        }
+        result
     }
 
     fn is_leader(&self) -> bool {
@@ -216,21 +323,21 @@ impl RaftState {
         ready: &Ready,
         batch: &mut MessageWriteBatch,
     ) -> Result<(), Error> {
-        let mut batch = self.raft_node.mut_store().batch();
         if let Some(ref committed_entries) = ready.committed_entries {
             let mut last_apply_index = 0;
             let mut conf_state = None;
             for entry in committed_entries {
-                info!("Entry: {:?}", entry);
                 last_apply_index = entry.get_index();
 
-                if entry.get_data().is_empty() {
+                debug!("Entry. type={:?} data={} ctx={}", entry.get_entry_type(), entry.get_data().len(), entry.get_context().len());
+
+                if entry.get_data().is_empty() && entry.get_context().is_empty() {
                     // Emtpy entry, when the peer becomes Leader it will send an empty entry.
                     continue;
                 }
 
                 match entry.get_entry_type() {
-                    eraftpb::EntryType::EntryNormal => self.handle_normal_entry(entry),
+                    eraftpb::EntryType::EntryNormal => self.handle_normal_entry(entry)?,
                     eraftpb::EntryType::EntryConfChange => {
                         conf_state = Some(self.handle_conf_change_entry(entry))
                     },
@@ -242,12 +349,20 @@ impl RaftState {
                     .create_snapshot(last_apply_index, conf_state, vec![])?;
             }
             self.raft_node.mut_store().update_apply_index(last_apply_index);
-            self.raft_node.mut_store().persist_apply_state(&mut batch)?;
+            self.raft_node.mut_store().persist_apply_state(batch)?;
         }
         Ok(())
     }
 
-    fn handle_normal_entry(&mut self, _entry: &eraftpb::Entry) {
+    fn handle_normal_entry(&mut self, entry: &eraftpb::Entry) -> Result<(), Error> {
+        info!("NormalEntry: {:?}", entry);
+        let ctx = parse_from_bytes::<EntryContext>(&entry.context)?;
+        let parsed = parse_from_bytes::<T::EntryType>(&entry.data)?;
+        self.state_machine.apply(parsed);
+        if let Some(observer) = self.observers.remove(&ctx.id) {
+            observer.observe(&self.state_machine);
+        }
+        Ok(())
     }
 
     fn handle_conf_change_entry(&mut self, entry: &eraftpb::Entry) -> eraftpb::ConfState {
@@ -255,10 +370,10 @@ impl RaftState {
 
         match cc.get_change_type() {
             eraftpb::ConfChangeType::AddNode => {
-                self.node.mut_store().add_node(peer);
+                // self.node.mut_store().add_node(peer);
             }
             eraftpb::ConfChangeType::RemoveNode => {
-                self.node.mut_store().remove_node(cc.node_id);
+                // self.node.mut_store().remove_node(cc.node_id);
             }
             _ => (), // no learners right now
         }
@@ -278,11 +393,15 @@ impl RaftState {
     }
 }
 
-impl Actor for RaftClient {
+impl<T> Actor for RaftClient<T>
+    where T: RaftStateMachine + 'static
+{
     type Context = Context<Self>;
 }
 
-impl Handler<InitNetwork> for RaftClient {
+impl<T> Handler<InitNetwork> for RaftClient<T>
+    where T: RaftStateMachine + 'static
+{
     type Result = ();
 
     fn handle(&mut self, message: InitNetwork, ctx: &mut Context<Self>) -> Self::Result {
@@ -291,7 +410,9 @@ impl Handler<InitNetwork> for RaftClient {
     }
 }
 
-impl Handler<TickMessage> for RaftClient {
+impl<T> Handler<TickMessage> for RaftClient<T>
+    where T: RaftStateMachine + 'static
+{
     type Result = ResponseActFuture<Self, (), Error>;
 
     fn handle(&mut self, _: TickMessage, _: &mut Context<Self>) -> Self::Result {
@@ -307,18 +428,22 @@ impl Handler<TickMessage> for RaftClient {
     }
 }
 
-impl Handler<ProposeMessage> for RaftClient {
+impl<O, T> Handler<RaftPropose<O, T>> for RaftClient<T>
+where T: RaftStateMachine + 'static,
+      O: StateMachineObserver<T> + 'static
+{
     type Result = Result<(), Error>;
 
-    fn handle(&mut self, message: ProposeMessage, _ctx: &mut Context<Self>)
+    fn handle(&mut self, message: RaftPropose<O, T>, _ctx: &mut Context<Self>)
         -> Self::Result
     {
-        self.raft_propose(vec![], vec![message.id])
-            .map_err(|e| e.into())
+        self.raft_propose_entry(message)
     }
 }
 
-impl Handler<RaftMessageReceived> for RaftClient {
+impl<T> Handler<RaftMessageReceived> for RaftClient<T>
+    where T: RaftStateMachine + 'static
+{
     type Result = Result<(), Error>;
 
     fn handle(&mut self, message: RaftMessageReceived, _ctx: &mut Context<Self>)
@@ -328,7 +453,9 @@ impl Handler<RaftMessageReceived> for RaftClient {
     }
 }
 
-impl Handler<PeerConnected> for RaftClient  {
+impl<T> Handler<PeerConnected> for RaftClient<T>
+    where T: RaftStateMachine + 'static
+{
     type Result = Result<(), Error>;
 
     fn handle(&mut self, message: PeerConnected, _ctx: &mut Context<Self>) -> Self::Result {

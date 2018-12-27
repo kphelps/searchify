@@ -5,6 +5,9 @@ package searchify;
 service Internal {
   rpc Hello(HelloRequest) returns (HelloResponse) {}
   rpc RaftMessage(SearchifyRaftMessage) returns (EmptyResponse) {}
+
+  rpc Set(KeyValue) returns (EmptyResponse) {}
+  rpc Get(Key) returns (KeyValue) {}
 }
 
 message HelloRequest {
@@ -37,11 +40,33 @@ message ApplyState {
   uint64 truncated_term = 3;
 }
 
-message RaftGroup {
+message RaftGroupMetaState {
   uint64 id = 1;
-  repeated Peer peers
+  repeated Peer peers = 2;
 }
 
 message Peer {
+  uint64 id = 1;
+}
+
+message Key {
+  bytes key = 1;
+}
+
+message KeyValue {
+  bytes key = 1;
+  bytes value = 2;
+}
+
+message KeyValueEntry {
+  oneof entry {
+    KeyValue set = 1;
+  }
+}
+
+message SearchEntry {
+}
+
+message EntryContext {
   uint64 id = 1;
 }
