@@ -15,6 +15,7 @@ use crate::raft_storage::{
 use crate::storage_engine::StorageEngine;
 use failure::Error;
 use protobuf::parse_from_bytes;
+use std::path::Path;
 
 pub fn run(config: &Config) -> Result<(), Error> {
     let _ = build_system(config)?.run();
@@ -23,13 +24,15 @@ pub fn run(config: &Config) -> Result<(), Error> {
 
 fn build_system(config: &Config) -> Result<SystemRunner, Error> {
     let sys = System::new("searchify");
-    let storage_engine = StorageEngine::new(&config.storage_root)?;
+    let storage_root = Path::new(&config.storage_root);
+    let storage_engine = StorageEngine::new(&storage_root.join("cluster"))?;
     init_node(&config.master_ids, &storage_engine)?;
 
     let group_states = get_raft_groups(&storage_engine)?;
     let group_state = group_states[0].clone();
     let storage = RaftStorage::new(group_state, storage_engine)?;
-    let kv_state_machine = KeyValueStateMachine::new();
+    let kv_engine = StorageEngine::new(&storage_root.join("kv"))?;
+    let kv_state_machine = KeyValueStateMachine::new(kv_engine);
     let raft = RaftClient::new(config.node_id, storage, kv_state_machine)?.start();
     let network = NetworkActor::start(config.node_id, config.port, &config.seeds, raft.clone())?;
     raft.try_send(InitNetwork(network))?;
@@ -71,17 +74,17 @@ fn get_raft_groups(engine: &StorageEngine) -> Result<Vec<RaftGroupMetaState>, Er
 mod test {
     use super::*;
     use crate::proto::*;
-    use failure::format_err;
     use futures::prelude::*;
-    use futures::future;
     use grpcio::{CallOption, EnvBuilder, ChannelBuilder};
     use log::error;
     use rand::{thread_rng, Rng};
     use std::sync::Arc;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
     use tempfile;
 
     fn config() -> Config {
+        std::env::set_var("RUST_LOG", "searchify=info,actix_web=info,raft=debug");
+        let _ = env_logger::try_init();
         let mut config = Config::default().unwrap();
         let dir = tempfile::tempdir().unwrap();
         config.storage_root = dir.path().to_str().unwrap().to_string();
@@ -126,48 +129,41 @@ mod test {
             .timeout(Duration::from_secs(3))
     }
 
-    fn eventually_ok<F, N, I>(
-        f: F,
-        back_off: Duration,
-        max_time: Duration,
-    ) -> impl Future<Item=I, Error=Error>
-    where F: Fn() -> N + 'static,
-          N: IntoFuture<Item=I, Error=Error> + 'static,
-          I: 'static
-    {
-        eventually_ok_impl(f, back_off, max_time, Instant::now())
-    }
-
-    fn eventually_ok_impl<F, N, I>(
-        f: F,
-        back_off: Duration,
-        max_time: Duration,
-        start_time: Instant,
-    ) -> impl Future<Item=I, Error=Error>
-        where F: Fn() -> N + 'static,
-              N: IntoFuture<Item=I, Error=Error> + 'static,
-              I: 'static
-    {
-        f().into_future().or_else(move |err| -> Box<Future<Item=I, Error=Error>> {
-            if Instant::now() - start_time > max_time {
-                Box::new(future::err(format_err!("Retry limit exceeded: {}", err)))
-            } else {
-                Box::new(eventually_ok_impl(f, back_off, max_time, start_time))
-            }
-        })
-    }
-
     #[test]
-    fn test_something() {
-        // std::env::set_var("RUST_LOG", "searchify=info,actix_web=info,raft=debug");
-        // env_logger::init();
+    fn test_set_then_get() {
         let config = config();
         let client = rpc_client(&config);
         let mut kv = KeyValue::new();
         kv.key = vec![0];
         kv.value = vec![0];
-        let f = move || client.set_async_opt(&kv, rpc_options()).unwrap().from_err();
-        let with_retries = eventually_ok(f, Duration::from_millis(1), Duration::from_secs(3));
-        assert!(run_node_fut(&config, with_retries).is_ok());
+        let f = client.set_async_opt(&kv, rpc_options()).unwrap()
+            .and_then(|_| {
+                let mut key = Key::new();
+                key.key = vec![0];
+                client.get_async_opt(&key, rpc_options()).unwrap()
+            })
+            .from_err::<Error>();
+        let got = run_node_fut(&config, f).unwrap();
+        assert_eq!(got.key, kv.key);
+        assert_eq!(got.value, kv.value);
+    }
+
+    #[test]
+    fn test_set_restart_get() {
+        let mut config = config();
+        let client = rpc_client(&config);
+        let mut kv = KeyValue::new();
+        kv.key = vec![0];
+        kv.value = vec![0];
+        let f = client.set_async_opt(&kv, rpc_options()).unwrap();
+        let _ = run_node_fut(&config, f).unwrap();
+        config.web.port += 1;  // TODO :sigh:
+
+        let mut key = Key::new();
+        key.key = vec![0];
+        let f = client.get_async_opt(&key, rpc_options()).unwrap();
+        let got = run_node_fut(&config, f).unwrap();
+        assert_eq!(got.key, kv.key);
+        assert_eq!(got.value, kv.value);
     }
 }

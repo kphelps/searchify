@@ -3,7 +3,6 @@ use crate::key_value_state_machine::KeyValueStateMachine;
 use crate::search_state_machine::SearchStateMachine;
 use crate::proto::*;
 use crate::raft::{
-    FutureStateMachineObserver,
     PeerConnected,
     RaftClient,
     RaftMessageReceived,
@@ -14,7 +13,7 @@ use failure::{err_msg, Error};
 use futures::{
     future,
     prelude::*,
-    sync::oneshot::channel,
+    sync::oneshot::{channel, Receiver},
 };
 use grpcio::{
     CallOption,
@@ -77,39 +76,38 @@ impl Internal for InternalServer {
     fn set(
         &mut self,
         ctx: RpcContext,
-        _req: KeyValue,
+        req: KeyValue,
         sink: UnarySink<EmptyResponse>,
     ) {
         info!("Set()");
-        let entry = KeyValueEntry::new();
-        propose_api(&self.network, ctx, entry, sink);
+        let (sender, receiver) = channel();
+        let proposal = KeyValueStateMachine::propose_set(req, sender);
+        propose_api(&self.network, proposal, receiver, ctx, sink);
     }
 
     fn get(
         &mut self,
         ctx: RpcContext,
-        _req: Key,
+        req: Key,
         sink: UnarySink<KeyValue>,
     ) {
-        let entry = KeyValueEntry::new();
-        propose_api(&self.network, ctx, entry, sink);
+        let (sender, receiver) = channel();
+        let proposal = KeyValueStateMachine::propose_get(req, sender);
+        propose_api(&self.network, proposal, receiver, ctx, sink);
     }
 }
 
-fn propose_api<T: Default + Debug + Send + 'static>(
+fn propose_api<T, O>(
     network: &Addr<NetworkActor>,
+    proposal: RaftPropose<O, KeyValueStateMachine>,
+    receiver: Receiver<T>,
     ctx: RpcContext,
-    entry: KeyValueEntry,
     sink: UnarySink<T>,
-) {
-    let (sender, receiver) = channel();
-    let observer = FutureStateMachineObserver::new(sender, |_: &KeyValueStateMachine| {
-        T::default()
-    });
-    let f = network.send(RaftPropose::new(entry, observer))
-        .from_err()
-        .and_then(|r| r)
-        .and_then(|_| receiver.from_err());
+)
+where T: Default + Debug + Send + 'static,
+      O: StateMachineObserver<KeyValueStateMachine> + Send + 'static
+{
+    let f = network.send(proposal).from_err().and_then(|r| r).and_then(|_| receiver.from_err());
     future_to_sink(f, ctx, sink);
 }
 

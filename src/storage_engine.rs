@@ -10,11 +10,10 @@ pub struct StorageEngine {
 }
 
 impl StorageEngine {
-    pub fn new<P>(storage_root: P) -> Result<Self, Error>
+    pub fn new<P>(path: P) -> Result<Self, Error>
         where P: AsRef<Path>
     {
-        let path = storage_root.as_ref().join("cluster");
-        let db = DB::open_default(path.to_str().unwrap()).map_err(err_msg)?;
+        let db = DB::open_default(path.as_ref().to_str().unwrap()).map_err(err_msg)?;
         Ok(Self {
             db: Arc::new(db),
         })

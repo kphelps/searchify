@@ -1,6 +1,6 @@
+#![feature(async_await)]
 #![feature(await_macro)]
 #![feature(futures_api)]
-#![feature(async_await)]
 #![feature(pin)]
 #![feature(proc_macro_hygiene)]
 #![feature(arbitrary_self_types)]

@@ -52,8 +52,7 @@ pub trait StateMachineObserver<S> {
     fn observe(self: Box<Self>, state_machine: &S);
 }
 
-pub struct FutureStateMachineObserver<T, F>
-{
+pub struct FutureStateMachineObserver<T, F> {
     sender: Sender<T>,
     observe_impl: F,
 }
