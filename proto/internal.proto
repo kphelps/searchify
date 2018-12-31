@@ -5,9 +5,16 @@ package searchify;
 service Internal {
   rpc Hello(HelloRequest) returns (HelloResponse) {}
   rpc RaftMessage(SearchifyRaftMessage) returns (EmptyResponse) {}
+  rpc Heartbeat(HeartbeatRequest) returns (EmptyResponse) {}
 
   rpc Set(KeyValue) returns (EmptyResponse) {}
   rpc Get(Key) returns (KeyValue) {}
+
+  rpc Health(HealthRequest) returns (HealthResponse) {}
+  rpc CreateIndex(CreateIndexRequest) returns (CreateIndexResponse) {}
+  rpc ShowIndex(ShowIndexRequest) returns (IndexState) {}
+  rpc ListNodes(ListNodesRequest) returns (ListNodesResponse) {}
+  rpc ListShards(ListShardsRequest) returns (ListShardsResponse) {}
 }
 
 message HelloRequest {
@@ -61,6 +68,8 @@ message KeyValue {
 message KeyValueEntry {
   oneof entry {
     KeyValue set = 1;
+    CreateIndexRequest create_index = 2;
+    LivenessHeartbeat heartbeat = 3;
   }
 }
 
@@ -69,4 +78,90 @@ message SearchEntry {
 
 message EntryContext {
   uint64 id = 1;
+}
+
+message CreateIndexRequest {
+  string name = 1;
+  IndexSchema schema = 2;
+}
+
+message IndexSchema {
+}
+
+message CreateIndexResponse {
+  bool success = 1;
+}
+
+message ShowIndexRequest {
+  string name = 1;
+}
+
+enum IndexStatus {
+  INDEX_UNALLOCATED = 0;
+  INDEX_INITIALIZING = 1;
+  INDEX_READY = 2;
+}
+
+message IndexState {
+  uint64 id = 1;
+  IndexStatus status = 2;
+  uint64 shard_count = 3;
+  uint64 replica_count = 4;
+}
+
+enum ShardStatus {
+  SHARD_INITIALIZING = 0;
+  SHARD_READY = 1;
+}
+
+message ShardState {
+  uint64 id = 1;
+  uint64 index_id = 2;
+  ShardStatus status = 3;
+  repeated Peer replicas = 4;
+}
+
+message LivenessHeartbeat {
+  Peer peer = 1;
+  uint64 tick = 2;
+}
+
+message PeerState {
+  Peer peer = 1;
+  uint64 last_heartbeat_tick = 2;
+}
+
+message NodeState {
+  PeerState peer_state = 1;
+}
+
+message ListNodesRequest {
+}
+
+message ListNodesResponse {
+  repeated NodeState nodes = 1;
+}
+
+message HeartbeatRequest {
+  Peer peer = 1;
+}
+
+message HealthRequest {
+}
+
+message HealthResponse {
+  bool available = 1;
+  bool fully_replicated = 2;
+}
+
+message ListShardsRequest {
+  Peer peer = 1;
+}
+
+message ListShardsResponse {
+  repeated ShardState shards = 1;
+}
+
+message SequenceState {
+  uint64 value = 1;
 }

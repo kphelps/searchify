@@ -5,18 +5,28 @@
 #![feature(proc_macro_hygiene)]
 #![feature(arbitrary_self_types)]
 
+#![feature(trait_alias)]
+
 use clap::{Arg, App};
 use failure::Error;
 use log::error;
 
+mod cached_persistent_cell;
+mod cached_persistent_map;
 mod config;
 mod key_value_state_machine;
+mod keys;
+mod id_generator;
 mod network;
 mod node;
+mod persistent_cell;
+mod persistent_map;
 mod proto;
 mod raft;
 mod raft_storage;
+mod rpc_client;
 mod search_state_machine;
+mod shard_tracker;
 mod storage_engine;
 mod web;
 

@@ -26,6 +26,7 @@ serde_derive = "*"
 tantivy = "*"
 tarpc = "*"
 tokio = "*"
+tokio-timer = "*"
 tokio-async-await = "*"
 uuid = "*"
 

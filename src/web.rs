@@ -1,15 +1,19 @@
+use actix::prelude::*;
 use actix_web::{
     self,
     App,
     Json,
     http::{Method},
+    HttpRequest,
     middleware::Logger,
-    Path,
-    Result,
-    Responder,
 };
-use actix_web_async_await::{compat};
 use crate::config::Config;
+use crate::network::{
+    CreateIndex,
+    NetworkActor,
+};
+use failure::Error;
+use futures::{prelude::*, future};
 use serde_derive::Serialize;
 use log::info;
 
@@ -19,23 +23,39 @@ struct Test {
 }
 
 struct RequestContext {
+    network: Addr<NetworkActor>,
 }
 
 impl RequestContext {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(network: Addr<NetworkActor>) -> Self {
+        Self {
+            network: network,
+        }
     }
 }
 
-async fn create_index(info: Path<String>) -> Result<impl Responder> {
-    let index_name = info.to_string();
-    Ok(Json(Test{index_name: index_name}))
+fn create_index(request: &HttpRequest<RequestContext>) -> impl Future<Item=Json<Test>, Error=Error> {
+    let network = request.state().network.clone();
+    future::result(request.match_info().query("name"))
+        .from_err::<Error>()
+        .and_then(move |index_name: String| {
+            let message = CreateIndex{
+                index_name: index_name.clone(),
+            };
+            network.send(message).flatten().from_err()
+                .map(|_| index_name)
+        })
+        .map(|index_name| Json(Test{index_name: index_name}))
+        .from_err()
 }
 
-pub fn start_web(config: &Config) {
-    let app_ctor = || App::with_state(RequestContext::new())
+pub fn start_web(
+    config: &Config,
+    network: Addr<NetworkActor>,
+) {
+    let app_ctor = move || App::with_state(RequestContext::new(network.clone()))
         .middleware(Logger::default())
-        .route("/{name}", Method::POST, compat(create_index))
+        .resource("/{name}", |r| r.method(Method::POST).a(create_index))
         .finish();
 
     let address = format!("{}:{}", config.web.host, config.web.port);

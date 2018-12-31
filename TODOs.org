@@ -1,0 +1,7 @@
+#+TODO: TODO DOING | DONE
+
+* DOING CreateIndex()
+* DOING Node liveness
+* TODO Gossip Protocol
+* TODO Non-master nodes
+* TODO Events for node based on leader state changes

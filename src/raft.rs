@@ -107,11 +107,8 @@ pub struct RaftMessageReceived{
 }
 
 #[derive(Message)]
-#[rtype(result="Result<(), Error>")]
-pub struct PeerConnected {
-    pub peer_id: u64,
-    pub is_master: bool,
-}
+#[rtype(result="u64")]
+pub struct GetLeaderId;
 
 #[derive(Message)]
 pub struct InitNetwork(pub Addr<NetworkActor>);
@@ -151,10 +148,6 @@ impl<T> RaftClient<T>
         Compat::new(RaftState::raft_tick(self.state.clone()))
     }
 
-    // fn raft_propose(&self, context: Vec<u8>, data: Vec<u8>) -> Result<(), Error> {
-    //     self.state.borrow_mut().propose(context, data)
-    // }
-
     fn raft_propose_entry<O>(&self, m: RaftPropose<O, T>) -> Result<(), Error>
         where O: StateMachineObserver<T> + 'static
     {
@@ -163,21 +156,6 @@ impl<T> RaftClient<T>
 
     fn raft_step(&self, message: eraftpb::Message) -> Result<(), Error> {
         self.state.borrow_mut().raft_node.step(message).map_err(|e| e.into())
-    }
-
-    fn raft_peer_connected(&self, id: u64) -> Result<(), Error> {
-        let mut conf_change = eraftpb::ConfChange::new();
-        conf_change.set_id(self.state.borrow().raft_node.raft.id);
-        conf_change.set_change_type(eraftpb::ConfChangeType::AddNode);
-        conf_change.set_node_id(id);
-        self.state.borrow_mut()
-            .raft_node
-            .propose_conf_change(vec![], conf_change)
-            .map_err(|e| e.into())
-    }
-
-    fn raft_node_connected(&self, _id: u64) -> Result<(), Error> {
-        Ok(())
     }
 
     fn schedule_next_tick(&self, ctx: &mut Context<Self>) {
@@ -266,6 +244,10 @@ impl<T> RaftState<T>
             self.observers.remove(&id);
         }
         result
+    }
+
+    pub fn leader_id(&self) -> u64 {
+        self.raft_node.raft.leader_id
     }
 
     fn is_leader(&self) -> bool {
@@ -452,16 +434,12 @@ impl<T> Handler<RaftMessageReceived> for RaftClient<T>
     }
 }
 
-impl<T> Handler<PeerConnected> for RaftClient<T>
+impl<T> Handler<GetLeaderId> for RaftClient<T>
     where T: RaftStateMachine + 'static
 {
-    type Result = Result<(), Error>;
+    type Result = u64;
 
-    fn handle(&mut self, message: PeerConnected, _ctx: &mut Context<Self>) -> Self::Result {
-        if message.is_master {
-            self.raft_peer_connected(message.peer_id)
-        } else {
-            self.raft_node_connected(message.peer_id)
-        }
+    fn handle(&mut self, _message: GetLeaderId, _ctx: &mut Context<Self>) -> Self::Result {
+        self.state.borrow().leader_id()
     }
 }

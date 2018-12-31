@@ -1,3 +1,4 @@
+use crate::keys::IntoKey;
 use failure::{err_msg, Error};
 use protobuf::{self, Message};
 use rocksdb::{DB, ReadOptions, Writable, WriteBatch};
@@ -19,27 +20,36 @@ impl StorageEngine {
         })
     }
 
-    pub fn get_message<M: Message>(&self, key: &[u8]) -> Result<Option<M>, Error> {
-        let opt = self.db.get(key).map_err(err_msg)?;
+    pub fn get_message<M, K>(&self, key: K) -> Result<Option<M>, Error>
+    where K: IntoKey,
+          M: Message
+    {
+        let opt = self.db.get(&key.into_key()).map_err(err_msg)?;
         if let Some(inner) = opt {
             return Ok(Some(protobuf::parse_from_bytes(&inner)?))
         }
         Ok(None)
     }
 
-    pub fn put_message<M: Message>(&self, key: &[u8], value: &M) -> Result<(), Error> {
+    pub fn put_message<M, K>(&self, key: K, value: &M) -> Result<(), Error>
+    where K: IntoKey,
+          M: Message
+    {
         let bytes = value.write_to_bytes()?;
-        Ok(self.db.put(key, &bytes).map_err(err_msg)?)
+        self.db.put(&key.into_key(), &bytes).map_err(err_msg)
     }
 
-    pub fn scan<F>(&self, start_key: &[u8], end_key: &[u8], mut f: F) -> Result<(), Error>
-        where F: FnMut(&[u8], &[u8]) -> Result<bool, Error>
+    pub fn scan<F, K1, K2>(&self, start_key: K1, end_key: K2, mut f: F) -> Result<(), Error>
+    where F: FnMut(&[u8], &[u8]) -> Result<bool, Error>,
+          K1: IntoKey,
+          K2: IntoKey
     {
         let mut options = ReadOptions::new();
-        options.set_iterate_lower_bound(start_key);
-        options.set_iterate_upper_bound(end_key);
+        let start_bytes: &[u8] = &start_key.into_key();
+        options.set_iterate_lower_bound(start_bytes);
+        options.set_iterate_upper_bound(&end_key.into_key());
         let mut it = self.db.iter_opt(options);
-        it.seek(start_key.into());
+        it.seek(start_bytes.into());
         while it.valid() {
             let r = f(it.key(), it.value())?;
             if !r || !it.next() {
@@ -49,8 +59,22 @@ impl StorageEngine {
         Ok(())
     }
 
+    pub fn scan_prefix<F, K>(&self, prefix_key: K, f: F) -> Result<(), Error>
+        where F: FnMut(&[u8], &[u8]) -> Result<bool, Error>,
+              K: IntoKey
+    {
+        let (start, end) = prefix_key.into_prefix();
+        self.scan(start, end, f)
+    }
+
     pub fn batch(&self) -> MessageWriteBatch {
         MessageWriteBatch::new(self.db.clone())
+    }
+
+    pub fn delete<K>(&self, key: K) -> Result<(), Error>
+        where K: IntoKey
+    {
+        self.db.delete(&key.into_key()).map_err(err_msg)
     }
 }
 
@@ -68,9 +92,12 @@ impl MessageWriteBatch {
         }
     }
 
-    pub fn put<M: Message>(&mut self, key: &[u8], value: &M) -> Result<(), Error> {
+    pub fn put<M, K>(&mut self, key: K, value: &M) -> Result<(), Error>
+    where K: IntoKey,
+          M: Message
+    {
         let bytes = value.write_to_bytes()?;
-        self.batch.put(key, &bytes).map_err(err_msg)
+        self.batch.put(&key.into_key(), &bytes).map_err(err_msg)
     }
 
     pub fn commit(self) -> Result<(), Error> {

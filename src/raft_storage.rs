@@ -84,7 +84,7 @@ impl RaftStorage {
     ) -> Result<(), Error> {
         for entry in entries {
             let key = self.raft_log_key(entry.index);
-            batch.put(&key, entry)?;
+            batch.put(key.as_ref(), entry)?;
         }
         if entries.len() > 0 {
             let last_entry = entries.last().unwrap();
@@ -126,7 +126,7 @@ impl RaftStorage {
 
     fn init_local_state(&mut self) -> Result<(), Error> {
         let key = self.local_state_key();
-        if let Some(state) = self.engine.get_message(&key)? {
+        if let Some(state) = self.engine.get_message(key.as_ref())? {
             self.state = state;
         } else {
             self.state.set_term(5);
@@ -138,12 +138,12 @@ impl RaftStorage {
 
     fn persist_local_state(&self, batch: &mut MessageWriteBatch) -> Result<(), Error> {
         let key = self.local_state_key();
-        batch.put(&key, &self.state)
+        batch.put(key.as_ref(), &self.state)
     }
 
     fn init_apply_state(&mut self) -> Result<(), Error> {
         let key = self.apply_state_key();
-        if let Some(state) = self.engine.get_message(&key)? {
+        if let Some(state) = self.engine.get_message(key.as_ref())? {
             self.apply_state = state;
         } else {
             self.apply_state.set_applied_index(5);
@@ -155,7 +155,7 @@ impl RaftStorage {
 
     pub fn persist_apply_state(&self, batch: &mut MessageWriteBatch) -> Result<(), Error> {
         let key = self.apply_state_key();
-        batch.put(&key, &self.apply_state)
+        batch.put(key.as_ref(), &self.apply_state)
     }
 
     fn init_last_term(&mut self) -> Result<(), Error> {
@@ -221,7 +221,7 @@ impl RaftStorage {
         let start_key = self.raft_log_key(low);
         let end_key = self.raft_log_key(high);
         let mut buf_size = 0;
-        self.engine.scan(&start_key, &end_key, |_, value| {
+        self.engine.scan(start_key.as_ref(), end_key.as_ref(), |_, value| {
             let mut entry = Entry::new();
             entry.merge_from_bytes(value)?;
             buf_size += value.len() as u64;

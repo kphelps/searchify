@@ -32,18 +32,18 @@ fn build_system(config: &Config) -> Result<SystemRunner, Error> {
     let group_state = group_states[0].clone();
     let storage = RaftStorage::new(group_state, storage_engine)?;
     let kv_engine = StorageEngine::new(&storage_root.join("kv"))?;
-    let kv_state_machine = KeyValueStateMachine::new(kv_engine);
+    let kv_state_machine = KeyValueStateMachine::new(kv_engine)?;
     let raft = RaftClient::new(config.node_id, storage, kv_state_machine)?.start();
     let network = NetworkActor::start(config.node_id, config.port, &config.seeds, raft.clone())?;
-    raft.try_send(InitNetwork(network))?;
-    start_web(config);
+    raft.try_send(InitNetwork(network.clone()))?;
+    start_web(config, network);
 
     Ok(sys)
 }
 
 fn init_node(master_ids: &[u64], engine: &StorageEngine) -> Result<(), Error> {
     let key = RaftStorage::raft_group_meta_state_key(0);
-    let opt = engine.get_message::<RaftGroupMetaState>(&key)?;
+    let opt: Option<RaftGroupMetaState> = engine.get_message(key.as_ref())?;
 
     if opt.is_none() {
         let mut state = RaftGroupMetaState::new();
@@ -53,16 +53,16 @@ fn init_node(master_ids: &[u64], engine: &StorageEngine) -> Result<(), Error> {
             peer.id = *n;
             state.mut_peers().push(peer);
         });
-        engine.put_message(&key, &state)?;
+        engine.put_message(key.as_ref(), &state)?;
     }
 
     Ok(())
 }
 
 fn get_raft_groups(engine: &StorageEngine) -> Result<Vec<RaftGroupMetaState>, Error> {
-    let end_key = vec![LOCAL_PREFIX, RAFT_GROUP_META_PREFIX + 1];
+    let end_key: Vec<u8> = vec![LOCAL_PREFIX, RAFT_GROUP_META_PREFIX + 1];
     let mut out = Vec::new();
-    engine.scan(RAFT_GROUP_META_PREFIX_KEY, &end_key, |_, value| {
+    engine.scan(RAFT_GROUP_META_PREFIX_KEY, end_key, |_, value| {
         out.push(parse_from_bytes(value)?);
         Ok(true)
     })?;
@@ -73,13 +73,10 @@ fn get_raft_groups(engine: &StorageEngine) -> Result<Vec<RaftGroupMetaState>, Er
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::proto::*;
+    use crate::rpc_client::RpcClient;
     use futures::prelude::*;
-    use grpcio::{CallOption, EnvBuilder, ChannelBuilder};
     use log::error;
     use rand::{thread_rng, Rng};
-    use std::sync::Arc;
-    use std::time::Duration;
     use tempfile;
 
     fn config() -> Config {
@@ -94,14 +91,11 @@ mod test {
         config
     }
 
-    fn run_node<F, N, I, E>(config: &Config, f: F) -> Result<I, Error>
-    where F: FnOnce() -> N,
-          N: IntoFuture<Item=I, Error=E>,
+    fn run_in_system<F, I, E>(system: &mut SystemRunner, f: F) -> Result<I, Error>
+    where F: IntoFuture<Item=I, Error=E>,
           E: Into<Error>
     {
-        let mut system = build_system(config)?;
-        let fut = f().into_future();
-        system.block_on(fut)
+        system.block_on(f.into_future())
             .map_err(|e| {
                 let err = e.into();
                 error!("Error in execution: {:?}", err);
@@ -109,61 +103,111 @@ mod test {
             })
     }
 
-    fn run_node_fut<F, I, E>(config: &Config, f: F) -> Result<I, Error>
-        where F: IntoFuture<Item=I, Error=E>,
+    fn run_node<F, I, E>(config: &Config, f: F) -> Result<I, Error>
+    where F: IntoFuture<Item=I, Error=E>,
+          E: Into<Error>
+    {
+        let mut system = build_system(config)?;
+        run_in_system(&mut system, f)
+    }
+
+    fn run_node_fn<F, N, I, E>(config: &Config, f: F) -> Result<I, Error>
+        where F: FnOnce() -> N,
+              N: IntoFuture<Item=I, Error=E>,
               E: Into<Error>
     {
-        run_node(config, move || f)
+        run_node(config, f())
     }
 
-    fn rpc_client(config: &Config) -> InternalClient {
-        let env = Arc::new(EnvBuilder::new().build());
+    fn rpc_client(config: &Config) -> RpcClient {
         let address = format!("127.0.0.1:{}", config.port);
-        let channel = ChannelBuilder::new(env).connect(&address);
-        InternalClient::new(channel)
-    }
-
-    fn rpc_options() -> CallOption {
-        CallOption::default()
-            .wait_for_ready(true)
-            .timeout(Duration::from_secs(3))
+        RpcClient::new(config.node_id, &address)
     }
 
     #[test]
     fn test_set_then_get() {
         let config = config();
+        let mut system  = build_system(&config).unwrap();
         let client = rpc_client(&config);
-        let mut kv = KeyValue::new();
-        kv.key = vec![0];
-        kv.value = vec![0];
-        let f = client.set_async_opt(&kv, rpc_options()).unwrap()
-            .and_then(|_| {
-                let mut key = Key::new();
-                key.key = vec![0];
-                client.get_async_opt(&key, rpc_options()).unwrap()
-            })
-            .from_err::<Error>();
-        let got = run_node_fut(&config, f).unwrap();
-        assert_eq!(got.key, kv.key);
-        assert_eq!(got.value, kv.value);
+        let key = vec![0];
+        let value = vec![0];
+        let f = client.set(&key, &value);
+        let _ = run_in_system(&mut system, f).unwrap();
+
+        let f = client.get(&key);
+        let got = run_in_system(&mut system, f).unwrap();
+        assert_eq!(got.key, key);
+        assert_eq!(got.value, value);
     }
 
     #[test]
     fn test_set_restart_get() {
         let mut config = config();
         let client = rpc_client(&config);
-        let mut kv = KeyValue::new();
-        kv.key = vec![0];
-        kv.value = vec![0];
-        let f = client.set_async_opt(&kv, rpc_options()).unwrap();
-        let _ = run_node_fut(&config, f).unwrap();
+        let key = vec![0];
+        let value = vec![0];
+        let f = client.set(&key, &value);
+        let _ = run_node(&config, f).unwrap();
         config.web.port += 1;  // TODO :sigh:
 
-        let mut key = Key::new();
-        key.key = vec![0];
-        let f = client.get_async_opt(&key, rpc_options()).unwrap();
-        let got = run_node_fut(&config, f).unwrap();
-        assert_eq!(got.key, kv.key);
-        assert_eq!(got.value, kv.value);
+        let f = client.get(&key);
+        let got = run_node(&config, f).unwrap();
+        assert_eq!(got.key, key);
+        assert_eq!(got.value, value);
+    }
+
+    #[test]
+    fn test_create_index_with_live_nodes() {
+        let config = config();
+        let mut system = build_system(&config).unwrap();
+        let client = rpc_client(&config);
+        let _ = run_in_system(&mut system, client.heartbeat());
+        let index_name = "hello-world";
+        let f = client.create_index(index_name);
+        let _ = run_in_system(&mut system, f).unwrap();
+
+        let f = client.show_index(index_name);
+        let response = run_in_system(&mut system, f).unwrap();
+        assert_eq!(response.shard_count, 2);
+        assert_eq!(response.replica_count, 3);
+
+        let f = client.list_shards(config.node_id);
+        let shards = run_in_system(&mut system, f).unwrap();
+        // No live nodes
+        assert_eq!(shards.len(), 2);
+    }
+
+    #[test]
+    fn test_create_index_without_live_nodes() {
+        let config = config();
+        let mut system = build_system(&config).unwrap();
+        let client = rpc_client(&config);
+        let index_name = "hello-world";
+        let f = client.create_index(index_name);
+        let _ = run_in_system(&mut system, f).unwrap();
+
+        let f = client.show_index(index_name);
+        let response = run_in_system(&mut system, f).unwrap();
+        assert_eq!(response.shard_count, 2);
+        assert_eq!(response.replica_count, 3);
+
+        let f = client.list_shards(config.node_id);
+        let shards = run_in_system(&mut system, f).unwrap();
+        // No live nodes
+        assert_eq!(shards.len(), 0);
+    }
+
+    #[test]
+    fn test_node_liveness() {
+        let config = config();
+        let mut system = build_system(&config).unwrap();
+        let client = rpc_client(&config);
+        let f = client.list_nodes();
+        let nodes = run_in_system(&mut system, f).unwrap();
+        assert_eq!(nodes.len(), 0);
+        let f = client.heartbeat()
+            .and_then(|_| client.list_nodes());
+        let nodes = run_in_system(&mut system, f).unwrap();
+        assert_eq!(nodes.len(), 1);
     }
 }
