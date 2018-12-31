@@ -41,9 +41,14 @@ impl RpcClient {
         futurize(self.client.hello_async_opt(&request, self.options()))
     }
 
-    pub fn raft_message(&self, message: &raft::eraftpb::Message) -> impl RpcFuture<()> {
+    pub fn raft_message(
+        &self,
+        message: &raft::eraftpb::Message,
+        raft_group_id: u64,
+    ) -> impl RpcFuture<()> {
         let mut request = SearchifyRaftMessage::new();
         request.wrapped_message = message.write_to_bytes().unwrap();
+        request.raft_group_id = raft_group_id;
         futurize(self.client.raft_message_async_opt(&request, self.options()))
             .map(|_| ())
     }

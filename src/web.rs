@@ -8,10 +8,7 @@ use actix_web::{
     middleware::Logger,
 };
 use crate::config::Config;
-use crate::network::{
-    CreateIndex,
-    NetworkActor,
-};
+use crate::node_router::NodeRouterHandle;
 use failure::Error;
 use futures::{prelude::*, future};
 use serde_derive::Serialize;
@@ -23,26 +20,23 @@ struct Test {
 }
 
 struct RequestContext {
-    network: Addr<NetworkActor>,
+    node_router: NodeRouterHandle,
 }
 
 impl RequestContext {
-    pub fn new(network: Addr<NetworkActor>) -> Self {
+    pub fn new(node_router: NodeRouterHandle) -> Self {
         Self {
-            network: network,
+            node_router,
         }
     }
 }
 
 fn create_index(request: &HttpRequest<RequestContext>) -> impl Future<Item=Json<Test>, Error=Error> {
-    let network = request.state().network.clone();
+    let network = request.state().node_router.clone();
     future::result(request.match_info().query("name"))
         .from_err::<Error>()
         .and_then(move |index_name: String| {
-            let message = CreateIndex{
-                index_name: index_name.clone(),
-            };
-            network.send(message).flatten().from_err()
+            network.create_index(index_name.clone())
                 .map(|_| index_name)
         })
         .map(|index_name| Json(Test{index_name: index_name}))
@@ -51,9 +45,9 @@ fn create_index(request: &HttpRequest<RequestContext>) -> impl Future<Item=Json<
 
 pub fn start_web(
     config: &Config,
-    network: Addr<NetworkActor>,
+    node_router: NodeRouterHandle,
 ) {
-    let app_ctor = move || App::with_state(RequestContext::new(network.clone()))
+    let app_ctor = move || App::with_state(RequestContext::new(node_router.clone()))
         .middleware(Logger::default())
         .resource("/{name}", |r| r.method(Method::POST).a(create_index))
         .finish();

@@ -1,8 +1,6 @@
 use actix::prelude::*;
-use crate::network::{
-    NetworkActor,
-    SendRaftMessage,
-};
+use crate::network::NetworkActor;
+use crate::node_router::NodeRouterHandle;
 use crate::proto::EntryContext;
 use crate::raft_storage::RaftStorage;
 use crate::storage_engine::MessageWriteBatch;
@@ -33,9 +31,11 @@ use tokio_async_await::compat::backward::Compat;
 struct RaftState<T> {
     state_machine: T,
     network: Option<Addr<NetworkActor>>,
+    node_router: NodeRouterHandle,
     raft_node: RawNode<RaftStorage>,
     node_id: u64,
     raft_group_id: u64,
+    leader_id: u64,
     observers: HashMap<u64, Box<StateMachineObserver<T>>>,
 }
 
@@ -107,10 +107,6 @@ pub struct RaftMessageReceived{
 }
 
 #[derive(Message)]
-#[rtype(result="u64")]
-pub struct GetLeaderId;
-
-#[derive(Message)]
 pub struct InitNetwork(pub Addr<NetworkActor>);
 
 pub trait RaftStateMachine {
@@ -132,8 +128,9 @@ impl<T> RaftClient<T>
         node_id: u64,
         storage: RaftStorage,
         state_machine: T,
+        node_router: NodeRouterHandle,
     ) -> Result<Self, Error> {
-        let state = RaftState::new(node_id, storage, state_machine)?;
+        let state = RaftState::new(node_id, storage, state_machine, node_router)?;
         Ok(Self {
             tick_interval: Duration::from_millis(100),
             state: Rc::new(RefCell::new(state)),
@@ -170,6 +167,7 @@ impl<T> RaftState<T>
         node_id: u64,
         storage: RaftStorage,
         state_machine: T,
+        node_router: NodeRouterHandle,
     ) -> Result<Self, Error> {
         let config = Config {
             id: node_id,
@@ -192,20 +190,20 @@ impl<T> RaftState<T>
             network: None,
             raft_node: node,
             observers: HashMap::new(),
+            leader_id: 0,
             node_id,
             raft_group_id,
             state_machine,
+            node_router,
         })
     }
 
     async fn raft_tick(locked: Rc<RefCell<Self>>) -> Result<(), Error> {
         let mut state = locked.borrow_mut();
         state.raft_node.tick();
-        debug!("Tick()");
         if !state.raft_node.has_ready() {
             return Ok(());
         }
-        debug!("Ready!");
 
         let mut ready = state.raft_node.ready();
         if state.is_leader() {
@@ -222,7 +220,15 @@ impl<T> RaftState<T>
         batch.commit()?;
         state.advance_raft(ready);
         let _ = state.compact();
+        state.update_leader_id();
         Ok(())
+    }
+
+    fn update_leader_id(&mut self) {
+        if self.leader_id != self.raft_node.raft.leader_id {
+            self.leader_id = self.raft_node.raft.leader_id;
+            self.node_router.set_leader_id(self.leader_id);
+        }
     }
 
     fn propose(&mut self, context: Vec<u8>, data: Vec<u8>) -> Result<(), Error> {
@@ -244,10 +250,6 @@ impl<T> RaftState<T>
             self.observers.remove(&id);
         }
         result
-    }
-
-    pub fn leader_id(&self) -> u64 {
-        self.raft_node.raft.leader_id
     }
 
     fn is_leader(&self) -> bool {
@@ -288,13 +290,8 @@ impl<T> RaftState<T>
 
     fn send_messages(&self, ready: &mut Ready) {
         for message in ready.messages.drain(..) {
-            let f = self.network.as_ref().unwrap()
-                .send(SendRaftMessage{
-                    raft_group_id: self.raft_group_id,
-                    message: message
-                })
-                .map(|_| ())
-                .map_err(|e| error!("Error sending message: {}", e));
+            let f = self.node_router.route_raft_message(message, self.raft_group_id)
+                .map_err(|e| debug!("Error sending raft message: {}", e));
             Arbiter::spawn(f);
         }
     }
@@ -309,8 +306,6 @@ impl<T> RaftState<T>
             let mut conf_state = None;
             for entry in committed_entries {
                 last_apply_index = entry.get_index();
-
-                debug!("Entry. type={:?} data={} ctx={}", entry.get_entry_type(), entry.get_data().len(), entry.get_context().len());
 
                 if entry.get_data().is_empty() && entry.get_context().is_empty() {
                     // Emtpy entry, when the peer becomes Leader it will send an empty entry.
@@ -336,7 +331,7 @@ impl<T> RaftState<T>
     }
 
     fn handle_normal_entry(&mut self, entry: &eraftpb::Entry) -> Result<(), Error> {
-        info!("NormalEntry: {:?}", entry);
+        debug!("NormalEntry: {:?}", entry);
         let ctx = parse_from_bytes::<EntryContext>(&entry.context)?;
         let parsed = parse_from_bytes::<T::EntryType>(&entry.data)?;
         self.state_machine.apply(parsed);
@@ -431,15 +426,5 @@ impl<T> Handler<RaftMessageReceived> for RaftClient<T>
         -> Self::Result
     {
         self.raft_step(message.message)
-    }
-}
-
-impl<T> Handler<GetLeaderId> for RaftClient<T>
-    where T: RaftStateMachine + 'static
-{
-    type Result = u64;
-
-    fn handle(&mut self, _message: GetLeaderId, _ctx: &mut Context<Self>) -> Self::Result {
-        self.state.borrow().leader_id()
     }
 }

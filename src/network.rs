@@ -3,13 +3,11 @@ use crate::key_value_state_machine::KeyValueStateMachine;
 use crate::search_state_machine::SearchStateMachine;
 use crate::proto::*;
 use crate::raft::{
-    GetLeaderId,
     RaftClient,
     RaftMessageReceived,
     RaftPropose,
     StateMachineObserver,
 };
-use crate::rpc_client::RpcClient;
 use failure::{err_msg, Error};
 use futures::{
     future,
@@ -17,8 +15,6 @@ use futures::{
     sync::oneshot::{channel, Receiver},
 };
 use grpcio::{
-    CallOption,
-    ChannelBuilder,
     EnvBuilder,
     RpcContext,
     RpcStatus,
@@ -28,13 +24,12 @@ use grpcio::{
     UnarySink,
 };
 use log::*;
-use protobuf::{Message, parse_from_bytes};
+use protobuf::parse_from_bytes;
 use raft::eraftpb;
 use std::boxed::Box;
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
+use std::sync::{Arc};
 
 #[derive(Clone)]
 struct InternalServer {
@@ -61,7 +56,7 @@ impl Internal for InternalServer {
         req: HeartbeatRequest,
         sink: UnarySink<EmptyResponse>,
     ) {
-        info!("Heartbeat from '{}'", req.get_peer().get_id());
+        debug!("Heartbeat from '{}'", req.get_peer().get_id());
         let (sender, receiver) = channel();
         let proposal = KeyValueStateMachine::propose_heartbeat(req, sender);
         propose_api(&self.network, proposal, receiver, ctx, sink);
@@ -233,19 +228,9 @@ fn future_to_sink<F, I, E>(f: F, ctx: RpcContext, sink: UnarySink<I>)
 
 pub struct NetworkActor {
     peer_id: u64,
-    seeds: Vec<String>,
-    // TODO: Probably can find a way to get rid of this Arc...
-    peers: Arc<RwLock<HashMap<u64, RpcClient>>>,
     server: Option<Server>,
     kv_raft_groups: HashMap<u64, Addr<RaftClient<KeyValueStateMachine>>>,
     search_raft_groups: HashMap<u64, Addr<RaftClient<SearchStateMachine>>>,
-}
-
-#[derive(Message)]
-#[rtype(result="Result<(), Error>")]
-pub struct SendRaftMessage {
-    pub raft_group_id: u64,
-    pub message: eraftpb::Message,
 }
 
 #[derive(Message)]
@@ -270,19 +255,12 @@ const GLOBAL_RAFT_ID: u64 = 0;
 impl NetworkActor {
     fn new(
         peer_id: u64,
-        peers: &[String],
-        port: u16,
         raft: Addr<RaftClient<KeyValueStateMachine>>,
     ) -> Self {
         let mut kv_raft_groups = HashMap::new();
         kv_raft_groups.insert(GLOBAL_RAFT_ID, raft);
-        let mut clients = HashMap::new();
-        let self_address = format!("127.0.0.1:{}", port);
-        clients.insert(peer_id, RpcClient::new(peer_id, &self_address));
         Self{
             peer_id: peer_id,
-            seeds: peers.to_vec(),
-            peers: Arc::new(RwLock::new(clients)),
             server: None,
             kv_raft_groups,
             search_raft_groups: HashMap::new(),
@@ -292,10 +270,9 @@ impl NetworkActor {
     pub fn start(
         peer_id: u64,
         port: u16,
-        peers: &[String],
         raft: Addr<RaftClient<KeyValueStateMachine>>,
     ) -> Result<Addr<Self>, Error> {
-        let addr = Self::new(peer_id, peers, port, raft).start();
+        let addr = Self::new(peer_id, raft).start();
         let service = create_internal(InternalServer{
             peer_id: peer_id,
             network: addr.clone(),
@@ -311,71 +288,13 @@ impl NetworkActor {
         Ok(addr)
     }
 
-    fn connect_to_peer(
-        &mut self,
-        peer_address: &str,
-    ) -> impl Future<Item=(), Error=Error> {
-        let peers = self.peers.clone();
-        let client = RpcClient::new(self.peer_id, peer_address);
-        client.hello().map(move |response| {
-            peers.write().unwrap().insert(response.peer_id, client);
-            info!("Connected to peer id '{}'", response.peer_id);
-        })
-    }
-
     fn global_raft(&self) -> Option<&Addr<RaftClient<KeyValueStateMachine>>> {
         self.kv_raft_groups.get(&GLOBAL_RAFT_ID)
-    }
-
-    fn send_heartbeat(&mut self, ctx: &mut Context<Self>) {
-        let f = self.leader_client()
-            .and_then(|client| client.heartbeat())
-            .map_err(|e| warn!("Error sending heartbeat: {:?}", e))
-            .into_actor(self);
-        ctx.spawn(f);
-    }
-
-    fn leader_id(&self) -> impl Future<Item=u64, Error=Error> {
-        self.get_leader_id_from_raft()
-    }
-
-    fn get_leader_id_from_raft(&self) -> impl Future<Item=u64, Error=Error> {
-        future::result(self.global_raft().cloned().ok_or(err_msg("No leader state locally")))
-            .and_then(|raft| raft.send(GetLeaderId).from_err())
-    }
-
-    fn leader_client(&self) -> impl Future<Item=RpcClient, Error=Error> {
-        let peers = self.peers.clone();
-        self.leader_id().and_then(move |id| {
-            info!("Leader: {}", id);
-            peers.read().unwrap().get(&id).cloned()
-                .ok_or(err_msg("no leader available"))
-        })
     }
 }
 
 impl Actor for NetworkActor {
     type Context = Context<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
-        ctx.run_interval(Duration::from_secs(5), Self::send_heartbeat);
-    }
-}
-
-impl Handler<ConnectToPeer> for NetworkActor {
-    type Result = ResponseActFuture<Self, (), Error>;
-
-    fn handle(&mut self, message: ConnectToPeer, _ctx: &mut Context<Self>) -> Self::Result {
-        Box::new(
-            self.connect_to_peer(&message.address)
-                .into_actor(self)
-                .map_err(|e, _, ctx| {
-                    error!("Failed: {}", e);
-                    ctx.notify_later(message, Duration::from_millis(1000));
-                    e
-                })
-        )
-    }
 }
 
 impl Handler<ServerStarted> for NetworkActor {
@@ -383,7 +302,6 @@ impl Handler<ServerStarted> for NetworkActor {
 
     fn handle(&mut self, message: ServerStarted, ctx: &mut Context<Self>) {
         self.server = Some(message.server);
-        self.seeds.iter().for_each(|seed| ctx.notify(ConnectToPeer{address: seed.clone()}));
     }
 }
 
@@ -421,38 +339,6 @@ impl<O> Handler<RaftPropose<O, KeyValueStateMachine>> for NetworkActor
         }
         let global = maybe_global.unwrap();
         let f = global.send(message).flatten();
-        Box::new(f)
-    }
-}
-
-impl Handler<SendRaftMessage> for NetworkActor {
-    type Result = ResponseFuture<(), Error>;
-
-    fn handle(&mut self, message: SendRaftMessage, ctx: &mut Context<Self>) -> Self::Result {
-        if message.message.to == self.peer_id {
-            self.handle(RaftMessageReceived{
-                raft_group_id: message.raft_group_id,
-                message: message.message,
-            }, ctx)
-        } else {
-            let peers = self.peers.read().unwrap();
-            let maybe_peer = peers.get(&message.message.to);
-            if maybe_peer.is_none() {
-                return Box::new(future::ok(()));
-            }
-            let peer = maybe_peer.unwrap();
-            Box::new(peer.raft_message(&message.message))
-        }
-    }
-}
-
-impl Handler<CreateIndex> for NetworkActor {
-    type Result = ResponseFuture<(), Error>;
-
-    fn handle(&mut self, message: CreateIndex, ctx: &mut Context<Self>) -> Self::Result {
-        let f = self.leader_client().and_then(move |client| {
-            client.create_index(&message.index_name)
-        });
         Box::new(f)
     }
 }

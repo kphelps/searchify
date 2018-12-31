@@ -26,8 +26,9 @@ serde_derive = "*"
 tantivy = "*"
 tarpc = "*"
 tokio = "*"
-tokio-timer = "*"
 tokio-async-await = "*"
+tokio-retry = "*"
+tokio-timer = "*"
 uuid = "*"
 
 [dependencies.rocksdb]

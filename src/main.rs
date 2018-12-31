@@ -19,6 +19,7 @@ mod keys;
 mod id_generator;
 mod network;
 mod node;
+mod node_router;
 mod persistent_cell;
 mod persistent_map;
 mod proto;

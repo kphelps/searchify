@@ -4,6 +4,7 @@ use crate::config::Config;
 use crate::web::start_web;
 use crate::network::NetworkActor;
 use crate::key_value_state_machine::KeyValueStateMachine;
+use crate::node_router::NodeRouter;
 use crate::proto::{Peer, RaftGroupMetaState};
 use crate::raft::{InitNetwork, RaftClient};
 use crate::raft_storage::{
@@ -28,15 +29,25 @@ fn build_system(config: &Config) -> Result<SystemRunner, Error> {
     let storage_engine = StorageEngine::new(&storage_root.join("cluster"))?;
     init_node(&config.master_ids, &storage_engine)?;
 
+    let node_router = NodeRouter::start(&config)?;
     let group_states = get_raft_groups(&storage_engine)?;
     let group_state = group_states[0].clone();
     let storage = RaftStorage::new(group_state, storage_engine)?;
     let kv_engine = StorageEngine::new(&storage_root.join("kv"))?;
     let kv_state_machine = KeyValueStateMachine::new(kv_engine)?;
-    let raft = RaftClient::new(config.node_id, storage, kv_state_machine)?.start();
-    let network = NetworkActor::start(config.node_id, config.port, &config.seeds, raft.clone())?;
+    let raft = RaftClient::new(
+        config.node_id,
+        storage,
+        kv_state_machine,
+        node_router.clone(),
+    )?.start();
+    let network = NetworkActor::start(
+        config.node_id,
+        config.port,
+        raft.clone(),
+    )?;
     raft.try_send(InitNetwork(network.clone()))?;
-    start_web(config, network);
+    start_web(config, node_router);
 
     Ok(sys)
 }
@@ -79,16 +90,21 @@ mod test {
     use rand::{thread_rng, Rng};
     use tempfile;
 
-    fn config() -> Config {
+    fn config_for_node(node_id: u64) -> Config {
         std::env::set_var("RUST_LOG", "searchify=info,actix_web=info,raft=debug");
         let _ = env_logger::try_init();
         let mut config = Config::default().unwrap();
         let dir = tempfile::tempdir().unwrap();
+        config.node_id = node_id;
         config.storage_root = dir.path().to_str().unwrap().to_string();
         config.master_ids = vec![config.node_id];
         config.port = thread_rng().gen_range(10000, 65534);
         config.web.port = config.port + 1;
         config
+    }
+
+    fn config() -> Config {
+        config_for_node(1)
     }
 
     fn run_in_system<F, I, E>(system: &mut SystemRunner, f: F) -> Result<I, Error>
