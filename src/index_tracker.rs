@@ -4,7 +4,7 @@ use crate::id_generator::IdGenerator;
 use crate::kv_index::UniqueKvIndex;
 use crate::proto::IndexState;
 use crate::storage_engine::StorageEngine;
-use failure::{Error, err_msg};
+use failure::{Error, err_msg, format_err};
 
 pub struct IndexTracker {
     indices: CachedPersistentMap<u64, IndexState>,
@@ -22,7 +22,7 @@ impl IndexTracker {
             id_generator,
             by_name: UniqueKvIndex::new(),
         };
-        tracker.initialize_indices();
+        tracker.initialize_indices()?;
         Ok(tracker)
     }
 
@@ -31,10 +31,11 @@ impl IndexTracker {
     }
 
     pub fn create(&mut self, index: &mut IndexState) -> Result<(), Error> {
+        self.validate(index)?;
         let id = self.id_generator.next()?;
         index.set_id(id);
         self.indices.insert(&id, index)?;
-        self.update_indices_for_index(index);
+        self.update_indices_for_index(index)?;
         Ok(())
     }
 
@@ -50,13 +51,20 @@ impl IndexTracker {
         self.by_name.get(&name.to_string(), &self.indices)
     }
 
-    fn initialize_indices(&mut self) {
-        self.indices.cache().clone().values().for_each(|index| {
-            self.update_indices_for_index(&index);
-        })
+    fn initialize_indices(&mut self) -> Result<(), Error> {
+        self.indices.cache().clone().values().map(|index| {
+            self.update_indices_for_index(&index)
+        }).collect()
     }
 
-    fn update_indices_for_index(&mut self, index: &IndexState) {
-        self.by_name.insert(index.id, index.name.clone());
+    fn update_indices_for_index(&mut self, index: &IndexState) -> Result<(), Error> {
+        self.by_name.insert(index.id, index.name.clone())
+    }
+
+    fn validate(&self, index: &IndexState) -> Result<(), Error> {
+        if !self.by_name.can_insert(&index.name) {
+            return Err(format_err!("Index '{}' already exists", index.name))
+        }
+        Ok(())
     }
 }

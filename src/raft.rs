@@ -174,6 +174,7 @@ impl<T> RaftState<T>
             peers: vec![],
             heartbeat_tick: 3,
             election_tick: 10,
+            applied: storage.last_applied_index(),
             ..Default::default()
         };
         config.validate()?;
@@ -323,9 +324,9 @@ impl<T> RaftState<T>
                 self.raft_node
                     .mut_store()
                     .create_snapshot(last_apply_index, conf_state, vec![])?;
+                self.raft_node.mut_store().update_apply_index(last_apply_index);
+                self.raft_node.mut_store().persist_apply_state(batch)?;
             }
-            self.raft_node.mut_store().update_apply_index(last_apply_index);
-            self.raft_node.mut_store().persist_apply_state(batch)?;
         }
         Ok(())
     }

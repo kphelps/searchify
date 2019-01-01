@@ -68,6 +68,10 @@ impl RaftStorage {
         self.raft_group.id
     }
 
+    pub fn last_applied_index(&self) -> u64 {
+        self.apply_state.applied_index
+    }
+
     pub fn batch(&self) -> MessageWriteBatch {
         self.engine.batch()
     }

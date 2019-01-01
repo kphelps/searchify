@@ -78,6 +78,10 @@ impl<K> UniqueKvIndex<K>
         self.index.get(key).map(|id| data.get(id).expect("Index out of sync"))
     }
 
+    pub fn can_insert(&self, key: &K) -> bool {
+        self.index.get(key).is_none()
+    }
+
     pub fn insert(&mut self, id: u64, key: K) -> Result<(), Error> {
         match self.index.entry(key) {
             Entry::Vacant(entry) => {
