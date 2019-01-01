@@ -22,8 +22,16 @@ fn futurize<T>(input: Result<ClientUnaryReceiver<T>, grpcio::Error>)
         .map_err(|err| err.into())
 }
 
-// TODO: only used in tests right now
-#[allow(dead_code)]
+fn futurize_unit<T>(input: Result<ClientUnaryReceiver<T>, grpcio::Error>)
+    -> impl RpcFuture<()>
+{
+    futures::future::result(input)
+        .and_then(|r| r)
+        .map_err(|err| err.into())
+        .map(|_| ())
+}
+
+
 impl RpcClient {
     pub fn new(node_id: u64, address: &str) -> Self {
         let env = Arc::new(EnvBuilder::new().build());
@@ -49,16 +57,14 @@ impl RpcClient {
         let mut request = SearchifyRaftMessage::new();
         request.wrapped_message = message.write_to_bytes().unwrap();
         request.raft_group_id = raft_group_id;
-        futurize(self.client.raft_message_async_opt(&request, self.options()))
-            .map(|_| ())
+        futurize_unit(self.client.raft_message_async_opt(&request, self.options()))
     }
 
     pub fn set(&self, key: &[u8], value: &[u8]) -> impl RpcFuture<()> {
         let mut kv = KeyValue::new();
         kv.key = key.to_vec();
         kv.value = value.to_vec();
-        futurize(self.client.set_async_opt(&kv, self.options()))
-            .map(|_| ())
+        futurize_unit(self.client.set_async_opt(&kv, self.options()))
     }
 
     pub fn get(&self, key: &[u8]) -> impl RpcFuture<KeyValue> {
@@ -70,8 +76,18 @@ impl RpcClient {
     pub fn create_index(&self, name: &str) -> impl RpcFuture<()> {
         let mut request = CreateIndexRequest::new();
         request.set_name(name.to_string());
-        futurize(self.client.create_index_async_opt(&request, self.options()))
-            .map(|_| ())
+        futurize_unit(self.client.create_index_async_opt(&request, self.options()))
+    }
+
+    pub fn delete_index(&self, name: &str) -> impl RpcFuture<()> {
+        let mut request = DeleteIndexRequest::new();
+        request.set_name(name.to_string());
+        futurize_unit(self.client.delete_index_async_opt(&request, self.options()))
+    }
+
+    pub fn list_indices(&self) -> impl RpcFuture<ListIndicesResponse> {
+        let request = ListIndicesRequest::new();
+        futurize(self.client.list_indices_async_opt(&request, self.options()))
     }
 
     pub fn show_index(&self, name: &str) -> impl RpcFuture<IndexState> {
@@ -100,8 +116,7 @@ impl RpcClient {
         let mut peer = Peer::new();
         peer.id = self.node_id;
         request.set_peer(peer);
-        futurize(self.client.heartbeat_async_opt(&request, self.options()))
-            .map(|_| ())
+        futurize_unit(self.client.heartbeat_async_opt(&request, self.options()))
     }
 
     fn options(&self) -> CallOption {

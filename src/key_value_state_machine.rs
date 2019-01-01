@@ -1,5 +1,6 @@
 use crate::keys::{self, KeySpace};
 use crate::cached_persistent_map::CachedPersistentMap;
+use crate::index_tracker::IndexTracker;
 use crate::proto::*;
 use crate::raft::{
     FutureStateMachineObserver,
@@ -16,7 +17,7 @@ use rocksdb::Writable;
 pub struct KeyValueStateMachine {
     engine: StorageEngine,
     nodes: CachedPersistentMap<u64, PeerState>,
-    indices: CachedPersistentMap<String, IndexState>,
+    indices: IndexTracker,
     shards: ShardTracker,
 }
 
@@ -25,7 +26,7 @@ impl KeyValueStateMachine {
         Ok(Self{
             engine: engine.clone(),
             nodes: CachedPersistentMap::new(&engine, KeySpace::Peer.as_key())?,
-            indices: CachedPersistentMap::new(&engine, KeySpace::Index.as_key())?,
+            indices: IndexTracker::new(&engine)?,
             shards: ShardTracker::new(&engine)?,
         })
     }
@@ -42,6 +43,7 @@ impl RaftStateMachine for KeyValueStateMachine {
         let _ = match entry.entry.unwrap() {
             KeyValueEntry_oneof_entry::set(kv) => self.set(kv),
             KeyValueEntry_oneof_entry::create_index(req) => self.create_index(req),
+            KeyValueEntry_oneof_entry::delete_index(req) => self.delete_index(req),
             KeyValueEntry_oneof_entry::heartbeat(heartbeat) => self.liveness_heartbeat(heartbeat),
         };
     }
@@ -62,16 +64,21 @@ impl KeyValueStateMachine {
     }
 
     fn create_index(&mut self, request: CreateIndexRequest) -> Result<(), Error> {
-        // Set index configuration to a key
         let mut index_state = IndexState::new();
         index_state.shard_count = 2;
         index_state.replica_count = 3;
+        index_state.name = request.name;
         let mut shards = self.allocate_shards(&index_state);
-        self.indices.insert(&request.get_name().to_string(), &index_state)?;
+        self.indices.create(&mut index_state)?;
         for shard in shards.iter_mut() {
             self.shards.create_shard(shard)?;
         }
         Ok(())
+    }
+
+    fn delete_index(&mut self, request: DeleteIndexRequest) -> Result<(), Error> {
+        let index_state = self.indices.delete(&request.get_name().to_string())?;
+        self.shards.delete_shards_for_index(index_state.id)
     }
 
     fn liveness_heartbeat(&mut self, heartbeat: LivenessHeartbeat)-> Result<(), Error> {
@@ -104,8 +111,11 @@ impl KeyValueStateMachine {
     }
 
     pub fn index(&self, name: &str) -> Result<Option<IndexState>, Error> {
-        let key = keys::build_index_key(name);
-        self.engine.get_message(&key)
+        Ok(self.indices.find_by_name(name))
+    }
+
+    pub fn list_indices(&self) -> Vec<IndexState> {
+        self.indices.all()
     }
 
     pub fn shards_for_node(&self, node: u64) -> Result<Vec<ShardState>, Error> {
@@ -163,6 +173,18 @@ impl KeyValueStateMachine {
                 response.success = true;
                 response
             }
+        );
+        SimplePropose::new(entry, observer)
+    }
+
+    pub fn propose_delete_index(request: DeleteIndexRequest, sender: Sender<EmptyResponse>)
+        -> SimplePropose<EmptyResponse, impl FnOnce(&Self) -> EmptyResponse>
+    {
+        let mut entry = KeyValueEntry::new();
+        entry.set_delete_index(request);
+        let observer = SimpleObserver::new(
+            sender,
+            |_: &KeyValueStateMachine| EmptyResponse::new(),
         );
         SimplePropose::new(entry, observer)
     }

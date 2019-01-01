@@ -5,3 +5,6 @@ seeds = [
   "localhost:11666",
   "localhost:11667",
 ]
+
+[web]
+port = 8082

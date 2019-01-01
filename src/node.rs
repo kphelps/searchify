@@ -13,6 +13,7 @@ use crate::raft_storage::{
     RAFT_GROUP_META_PREFIX_KEY,
     RaftStorage,
 };
+use crate::search::IndexCoordinator;
 use crate::storage_engine::StorageEngine;
 use failure::Error;
 use protobuf::parse_from_bytes;
@@ -30,6 +31,7 @@ fn build_system(config: &Config) -> Result<SystemRunner, Error> {
     init_node(&config.master_ids, &storage_engine)?;
 
     let node_router = NodeRouter::start(&config)?;
+    let index_coordinator = IndexCoordinator::new(&config, node_router.clone()).start();
     let group_states = get_raft_groups(&storage_engine)?;
     let group_state = group_states[0].clone();
     let storage = RaftStorage::new(group_state, storage_engine)?;

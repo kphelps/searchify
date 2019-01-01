@@ -12,7 +12,9 @@ service Internal {
 
   rpc Health(HealthRequest) returns (HealthResponse) {}
   rpc CreateIndex(CreateIndexRequest) returns (CreateIndexResponse) {}
+  rpc DeleteIndex(DeleteIndexRequest) returns (EmptyResponse) {}
   rpc ShowIndex(ShowIndexRequest) returns (IndexState) {}
+  rpc ListIndices(ListIndicesRequest) returns (ListIndicesResponse) {}
   rpc ListNodes(ListNodesRequest) returns (ListNodesResponse) {}
   rpc ListShards(ListShardsRequest) returns (ListShardsResponse) {}
 }
@@ -70,6 +72,7 @@ message KeyValueEntry {
     KeyValue set = 1;
     CreateIndexRequest create_index = 2;
     LivenessHeartbeat heartbeat = 3;
+    DeleteIndexRequest delete_index = 4;
   }
 }
 
@@ -92,8 +95,19 @@ message CreateIndexResponse {
   bool success = 1;
 }
 
+message DeleteIndexRequest {
+  string name = 1;
+}
+
 message ShowIndexRequest {
   string name = 1;
+}
+
+message ListIndicesRequest {
+} 
+
+message ListIndicesResponse {
+  repeated IndexState indices = 1;
 }
 
 enum IndexStatus {
@@ -107,6 +121,7 @@ message IndexState {
   IndexStatus status = 2;
   uint64 shard_count = 3;
   uint64 replica_count = 4;
+  string name = 5;
 }
 
 enum ShardStatus {

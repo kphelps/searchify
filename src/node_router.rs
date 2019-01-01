@@ -1,5 +1,6 @@
 use actix::Arbiter;
 use crate::config::Config;
+use crate::proto::*;
 use crate::rpc_client::{RpcClient, RpcFuture};
 use futures::{prelude::*, future};
 use failure::{Error, err_msg, format_err};
@@ -97,23 +98,37 @@ impl NodeRouter {
         message: raft::eraftpb::Message,
         raft_group_id: u64,
     ) -> impl RpcFuture<()> {
-        let peers = self.peers.read().unwrap();
-        future::result(peers.get(&message.to).cloned().ok_or(err_msg("peer not found")))
+        future::result(self.peer(message.to))
             .and_then(move |peer| peer.raft_message(&message, raft_group_id))
     }
 
     pub fn create_index(&self, name: String) -> impl RpcFuture<()> {
-        future::result(self.leader_client())
-            .and_then(move |client| client.create_index(&name))
+        self.with_leader_client(move |client| client.create_index(&name))
+    }
+
+    pub fn delete_index(&self, name: String) -> impl RpcFuture<()> {
+        self.with_leader_client(move |client| client.delete_index(&name))
+    }
+
+    pub fn list_indices(&self) -> impl RpcFuture<ListIndicesResponse> {
+        self.with_leader_client(move |client| client.list_indices())
+    }
+
+    pub fn list_shards(&self, node_id: u64) -> impl RpcFuture<Vec<ShardState>> {
+        self.with_leader_client(move |client| client.list_shards(node_id))
     }
 
     pub fn send_heartbeat(&self) -> impl RpcFuture<()> {
-        future::result(self.leader_client())
-            .and_then(|client| client.heartbeat())
+        self.with_leader_client(|client| client.heartbeat())
     }
 
     pub fn set_leader_id(&self, id: u64) {
         self.leader_id.store(id as usize, Ordering::Relaxed);
+    }
+
+    fn peer(&self, id: u64) -> Result<RpcClient, Error> {
+        let peers = self.peers.read().unwrap();
+        peers.get(&id).cloned().ok_or(err_msg("peer not found"))
     }
 
     fn leader_id(&self) -> u64 {
@@ -122,8 +137,14 @@ impl NodeRouter {
 
     fn leader_client(&self) -> Result<RpcClient, Error> {
         let id = self.leader_id();
-        let peers = self.peers.read().unwrap();
-        peers.get(&id).cloned().ok_or(err_msg("no leader available"))
+        self.peer(id).map_err(|_| err_msg("no leader available"))
+    }
+
+    fn with_leader_client<F, X, R>(&self, f: F) -> impl RpcFuture<R>
+        where F: FnOnce(RpcClient) -> X,
+              X: RpcFuture<R>
+    {
+        future::result(self.leader_client()).and_then(f)
     }
 }
 

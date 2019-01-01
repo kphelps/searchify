@@ -1,7 +1,7 @@
 use config::{ConfigError, Config as ConfigBuilder, File, Environment};
 use serde_derive::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct Config {
     pub node_id: u64,
     pub port: u16,
@@ -11,7 +11,7 @@ pub struct Config {
     pub web: WebConfig,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct WebConfig {
     pub host: String,
     pub port: u16,

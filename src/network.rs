@@ -110,6 +110,17 @@ impl Internal for InternalServer {
         propose_api(&self.network, proposal, receiver, ctx, sink);
     }
 
+    fn delete_index(
+        &mut self,
+        ctx: RpcContext,
+        req: DeleteIndexRequest,
+        sink: UnarySink<EmptyResponse>,
+    ) {
+        let (sender, receiver) = channel();
+        let proposal = KeyValueStateMachine::propose_delete_index(req, sender);
+        propose_api(&self.network, proposal, receiver, ctx, sink);
+    }
+
     fn show_index(
         &mut self,
         ctx: RpcContext,
@@ -121,6 +132,25 @@ impl Internal for InternalServer {
             sm.index(&req.name).and_then(|option| option.ok_or(err_msg("Not found")))
         });
         propose_api_result(&self.network, proposal, receiver, ctx, sink);
+    }
+
+    fn list_indices(
+        &mut self,
+        ctx: RpcContext,
+        req: ListIndicesRequest,
+        sink: UnarySink<ListIndicesResponse>,
+    ) {
+        let (sender, receiver) = channel();
+        let proposal = KeyValueStateMachine::read_operation(
+            sender,
+            |sm| {
+                let indices = sm.list_indices();
+                let mut response = ListIndicesResponse::new();
+                response.set_indices(indices.into());
+                response
+            }
+        );
+        propose_api(&self.network, proposal, receiver, ctx, sink);
     }
 
     fn list_nodes(

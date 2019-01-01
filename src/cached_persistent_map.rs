@@ -1,4 +1,5 @@
 use crate::keys::{FromKey, KeyPart, MetaKey};
+use crate::kv_index::Keyable;
 use crate::persistent_map::PersistentMap;
 use crate::storage_engine::StorageEngine;
 use failure::Error;
@@ -30,14 +31,9 @@ where K: Into<KeyPart> + FromKey + Clone + Eq + Hash,
         Ok(())
     }
 
-    pub fn get(&self, k: &K) -> Option<&V> {
-        self.cache.get(&k)
-    }
-
-    pub fn delete(&mut self, k: &K) -> Result<(), Error> {
+    pub fn delete(&mut self, k: &K) -> Result<V, Error> {
         self.persistent.delete(k)?;
-        self.cache.remove(k);
-        Ok(())
+        Ok(self.cache.remove(k).expect("Index out of sync"))
     }
 
     fn init_cache(&mut self) -> Result<(), Error> {
@@ -52,5 +48,16 @@ where K: Into<KeyPart> + FromKey + Clone + Eq + Hash,
 
     pub fn cache(&self) -> &HashMap<K, V> {
         &self.cache
+    }
+}
+
+impl<K, V> Keyable<K> for CachedPersistentMap<K, V>
+    where K: Eq + Hash,
+        V: Clone
+{
+    type Value = V;
+
+    fn get(&self, k: &K) -> Option<Self::Value> {
+        self.cache.get(k).cloned()
     }
 }

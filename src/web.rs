@@ -5,6 +5,7 @@ use actix_web::{
     Json,
     http::{Method},
     HttpRequest,
+    HttpResponse,
     middleware::Logger,
 };
 use crate::config::Config;
@@ -19,6 +20,13 @@ struct Test {
     index_name: String,
 }
 
+#[derive(Serialize)]
+struct Index {
+    index_name: String,
+    shard_count: u64,
+    replica_count: u64,
+}
+
 struct RequestContext {
     node_router: NodeRouterHandle,
 }
@@ -29,10 +37,14 @@ impl RequestContext {
             node_router,
         }
     }
+
+    pub fn node_router(&self) -> NodeRouterHandle {
+        self.node_router.clone()
+    }
 }
 
 fn create_index(request: &HttpRequest<RequestContext>) -> impl Future<Item=Json<Test>, Error=Error> {
-    let network = request.state().node_router.clone();
+    let network = request.state().node_router();
     future::result(request.match_info().query("name"))
         .from_err::<Error>()
         .and_then(move |index_name: String| {
@@ -43,13 +55,38 @@ fn create_index(request: &HttpRequest<RequestContext>) -> impl Future<Item=Json<
         .from_err()
 }
 
+fn delete_index(request: &HttpRequest<RequestContext>) -> impl Future<Item=HttpResponse, Error=Error> {
+    let network = request.state().node_router();
+    future::result(request.match_info().query("name"))
+        .from_err::<Error>()
+        .and_then(move |index_name: String| network.delete_index(index_name.clone()))
+        .map(|_| HttpResponse::NoContent().finish())
+}
+
+fn list_indices(request: &HttpRequest<RequestContext>) -> impl Future<Item=Json<Vec<Index>>, Error=Error> {
+    request.state().node_router().list_indices().map(|response| {
+        let indices = response.indices.into_iter().map(|index| {
+            Index {
+                index_name: index.name,
+                shard_count: index.shard_count,
+                replica_count: index.replica_count,
+            }
+        });
+        Json(indices.collect())
+    })
+}
+
 pub fn start_web(
     config: &Config,
     node_router: NodeRouterHandle,
 ) {
     let app_ctor = move || App::with_state(RequestContext::new(node_router.clone()))
         .middleware(Logger::default())
-        .resource("/{name}", |r| r.method(Method::POST).a(create_index))
+        .resource("/{name}", |r| {
+            r.post().a(create_index);
+            r.delete().a(delete_index);
+        })
+        .resource("/_cat/indices", |r| r.get().a(list_indices))
         .finish();
 
     let address = format!("{}:{}", config.web.host, config.web.port);
