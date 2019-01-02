@@ -6,8 +6,6 @@ pub struct SearchStateMachine {
 
 impl SearchStateMachine {
 
-    // TODO
-    #[allow(dead_code)]
     pub fn new() -> Self {
         Self{}
     }

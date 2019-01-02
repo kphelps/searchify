@@ -1,7 +1,11 @@
+// TODO: This module should take advantage of the rocksdb abstractions
+
 use byteorder::{BigEndian, ByteOrder};
 use crate::proto::{
     ApplyState,
+    Peer,
     RaftGroupMetaState,
+    RaftGroupType,
     RaftLocalState,
 };
 use crate::storage_engine::{MessageWriteBatch, StorageEngine};
@@ -45,6 +49,29 @@ pub const RAFT_GROUP_META_PREFIX: u8 = 0x03;
 pub const RAFT_GROUP_META_PREFIX_KEY: &[u8] = &[LOCAL_PREFIX, RAFT_GROUP_META_PREFIX];
 const RAFT_GROUP_META_STATE_SUFFIX: u8 = 0x01;
 
+pub fn init_raft_group(
+    engine: &StorageEngine,
+    id: u64,
+    peer_ids: &[u64],
+    group_type: RaftGroupType,
+) -> Result<(), Error> {
+    let key = RaftStorage::raft_group_meta_state_key(id);
+    let opt: Option<RaftGroupMetaState> = engine.get_message(key.as_ref())?;
+
+    if opt.is_none() {
+        let mut state = RaftGroupMetaState::new();
+        state.id = id;
+        state.group_type = group_type;
+        peer_ids.iter().for_each(|n| {
+            let mut peer = Peer::new();
+            peer.id = *n;
+            state.mut_peers().push(peer);
+        });
+        engine.put_message(key.as_ref(), &state)?;
+    }
+
+    Ok(())
+}
 
 impl RaftStorage {
     pub fn new(

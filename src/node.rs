@@ -5,13 +5,14 @@ use crate::web::start_web;
 use crate::network::NetworkActor;
 use crate::key_value_state_machine::KeyValueStateMachine;
 use crate::node_router::NodeRouter;
-use crate::proto::{Peer, RaftGroupMetaState};
+use crate::proto::{Peer, RaftGroupMetaState, RaftGroupType};
 use crate::raft::{InitNetwork, RaftClient};
 use crate::raft_storage::{
     LOCAL_PREFIX,
     RAFT_GROUP_META_PREFIX,
     RAFT_GROUP_META_PREFIX_KEY,
     RaftStorage,
+    init_raft_group,
 };
 use crate::search::IndexCoordinator;
 use crate::storage_engine::StorageEngine;
@@ -31,8 +32,13 @@ fn build_system(config: &Config) -> Result<SystemRunner, Error> {
     init_node(&config.master_ids, &storage_engine)?;
 
     let node_router = NodeRouter::start(&config)?;
-    let index_coordinator = IndexCoordinator::new(&config, node_router.clone()).start();
     let group_states = get_raft_groups(&storage_engine)?;
+    let index_coordinator = IndexCoordinator::new(
+        &config,
+        node_router.clone(),
+        storage_engine.clone(),
+        &group_states,
+    )?.start();
     let group_state = group_states[0].clone();
     let storage = RaftStorage::new(group_state, storage_engine)?;
     let kv_engine = StorageEngine::new(&storage_root.join("kv"))?;
@@ -55,21 +61,7 @@ fn build_system(config: &Config) -> Result<SystemRunner, Error> {
 }
 
 fn init_node(master_ids: &[u64], engine: &StorageEngine) -> Result<(), Error> {
-    let key = RaftStorage::raft_group_meta_state_key(0);
-    let opt: Option<RaftGroupMetaState> = engine.get_message(key.as_ref())?;
-
-    if opt.is_none() {
-        let mut state = RaftGroupMetaState::new();
-        state.id = 0;
-        master_ids.iter().for_each(|n| {
-            let mut peer = Peer::new();
-            peer.id = *n;
-            state.mut_peers().push(peer);
-        });
-        engine.put_message(key.as_ref(), &state)?;
-    }
-
-    Ok(())
+    init_raft_group(engine, 0, master_ids, RaftGroupType::RAFT_GROUP_META)
 }
 
 fn get_raft_groups(engine: &StorageEngine) -> Result<Vec<RaftGroupMetaState>, Error> {

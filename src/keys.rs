@@ -218,6 +218,7 @@ pub enum KeySpace {
     Peer = 0x2,
     Shard = 0x3,
     Id = 0x4,
+    ShardState = 0x50,
 }
 
 impl KeySpace {
