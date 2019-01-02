@@ -1,6 +1,7 @@
 use actix::prelude::*;
 use crate::config::Config;
 use crate::proto::*;
+use crate::network::NetworkActor;
 use crate::node_router::NodeRouterHandle;
 use crate::raft_storage::init_raft_group;
 use crate::shard::Shard;
@@ -16,6 +17,7 @@ pub struct IndexCoordinator {
     node_router: NodeRouterHandle,
     raft_storage_engine: StorageEngine,
     shards: HashMap<u64, Shard>,
+    network: Addr<NetworkActor>
 }
 
 impl Actor for IndexCoordinator {
@@ -32,12 +34,14 @@ impl IndexCoordinator {
         node_router: NodeRouterHandle,
         raft_storage_engine: StorageEngine,
         raft_group_states: &Vec<RaftGroupMetaState>,
+        network: &Addr<NetworkActor>
     ) -> Result<Self, Error> {
         let mut coordinator = Self {
             config: config.clone(),
             node_router: node_router,
             raft_storage_engine,
             shards: HashMap::new(),
+            network: network.clone(),
         };
 
         raft_group_states.iter()
@@ -69,24 +73,26 @@ impl IndexCoordinator {
     }
 
     fn initialize_shard_from_disk(&mut self, state: &RaftGroupMetaState) -> Result<(), Error> {
-        info!("Loading shard from disk: {:?}", state);
+        info!("Loading shard from disk: {:?}", state.get_id());
         let shard = Shard::load(
             state.get_id(),
             self.config.node_id,
             self.node_router.clone(),
             &self.raft_storage_engine,
+            &self.network,
         )?;
         self.shards.insert(state.get_id(), shard);
         Ok(())
     }
 
     fn allocate_shard(&mut self, shard_state: &ShardState) -> Result<(), Error> {
-        info!("Allocating shard: {:?}", shard_state);
+        info!("Allocating shard: {:?}", shard_state.get_id());
         let shard = Shard::create(
             shard_state,
             self.config.node_id,
             self.node_router.clone(),
             &self.raft_storage_engine,
+            &self.network,
         )?;
         self.shards.insert(shard_state.get_id(), shard);
         Ok(())

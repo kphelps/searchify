@@ -1,6 +1,7 @@
 use actix::prelude::*;
 use crate::cached_persistent_cell::CachedPersistentCell;
 use crate::keys::{KeySpace, MetaKey};
+use crate::network::NetworkActor;
 use crate::node_router::NodeRouterHandle;
 use crate::raft::RaftClient;
 use crate::raft_storage::{RaftStorage, init_raft_group};
@@ -37,6 +38,7 @@ impl Shard {
         node_id: u64,
         node_router: NodeRouterHandle,
         raft_storage_engine: &StorageEngine,
+        network: &Addr<NetworkActor>
     ) -> Result<Self, Error> {
         let raft_state = new_raft_state_cell(raft_storage_engine, id)?;
         let group_state = raft_state.get().ok_or(format_err!("Shard does not exist: {}", id))?;
@@ -52,6 +54,7 @@ impl Shard {
             raft_storage,
             state_machine,
             node_router,
+            network,
         )?.start();
 
         let shard = Self {
@@ -68,6 +71,7 @@ impl Shard {
         node_id: u64,
         node_router: NodeRouterHandle,
         raft_storage_engine: &StorageEngine,
+        network: &Addr<NetworkActor>
     ) -> Result<Self, Error> {
         init_raft_group(
             raft_storage_engine,
@@ -86,6 +90,7 @@ impl Shard {
             node_id,
             node_router,
             raft_storage_engine,
+            network,
         )
     }
 }

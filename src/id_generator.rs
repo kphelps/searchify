@@ -13,7 +13,7 @@ impl IdGenerator {
         let mut storage = CachedPersistentCell::new(engine, key)?;
         if let None = storage.get() {
             let mut state = SequenceState::new();
-            state.value = 0;
+            state.value = 1;
             storage.set(&state)?;
         }
         Ok(Self{storage})

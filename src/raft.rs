@@ -1,5 +1,5 @@
 use actix::prelude::*;
-use crate::network::NetworkActor;
+use crate::network::{NetworkActor, RaftGroupStarted};
 use crate::node_router::NodeRouterHandle;
 use crate::proto::EntryContext;
 use crate::raft_storage::RaftStorage;
@@ -30,7 +30,6 @@ use tokio_async_await::compat::backward::Compat;
 
 struct RaftState<T> {
     state_machine: T,
-    network: Option<Addr<NetworkActor>>,
     node_router: NodeRouterHandle,
     raft_node: RawNode<RaftStorage>,
     node_id: u64,
@@ -42,6 +41,7 @@ struct RaftState<T> {
 pub struct RaftClient<T> {
     tick_interval: Duration,
     state: Rc<RefCell<RaftState<T>>>,
+    network: Addr<NetworkActor>,
 }
 
 #[derive(Message)]
@@ -122,23 +122,22 @@ pub trait RaftEntryHandler<T> {
 }
 
 impl<T> RaftClient<T>
-    where T: RaftStateMachine + 'static
+    where T: RaftStateMachine + 'static,
+          NetworkActor: Handler<RaftGroupStarted<T>>
 {
     pub fn new(
         node_id: u64,
         storage: RaftStorage,
         state_machine: T,
         node_router: NodeRouterHandle,
+        network: &Addr<NetworkActor>,
     ) -> Result<Self, Error> {
         let state = RaftState::new(node_id, storage, state_machine, node_router)?;
         Ok(Self {
             tick_interval: Duration::from_millis(100),
             state: Rc::new(RefCell::new(state)),
+            network: network.clone(),
         })
-    }
-
-    fn init_network(&self, network: Addr<NetworkActor>) {
-        self.state.borrow_mut().network = Some(network);
     }
 
     fn raft_tick(&self) -> impl Future<Item=(), Error=Error> {
@@ -169,16 +168,17 @@ impl<T> RaftState<T>
         state_machine: T,
         node_router: NodeRouterHandle,
     ) -> Result<Self, Error> {
+        let raft_group_id = storage.raft_group_id();
         let config = Config {
             id: node_id,
             peers: vec![],
             heartbeat_tick: 3,
             election_tick: 10,
             applied: storage.last_applied_index(),
+            tag: format!("[group-{}]", raft_group_id),
             ..Default::default()
         };
         config.validate()?;
-        let raft_group_id = storage.raft_group_id();
         let initial_state = storage.initial_state()?;
         let mut node = RawNode::new(&config, storage, vec![])?;
 
@@ -188,7 +188,6 @@ impl<T> RaftState<T>
         }
 
         Ok(Self {
-            network: None,
             raft_node: node,
             observers: HashMap::new(),
             leader_id: 0,
@@ -371,24 +370,28 @@ impl<T> RaftState<T>
 }
 
 impl<T> Actor for RaftClient<T>
-    where T: RaftStateMachine + 'static
+where T: RaftStateMachine + 'static,
+      NetworkActor: Handler<RaftGroupStarted<T>>
 {
     type Context = Context<Self>;
-}
 
-impl<T> Handler<InitNetwork> for RaftClient<T>
-    where T: RaftStateMachine + 'static
-{
-    type Result = ();
+    fn started(&mut self, ctx: &mut Context<Self>) {
+        let message = RaftGroupStarted{
+            raft_group_id: self.state.borrow().raft_group_id,
+            raft_group: ctx.address(),
+        };
+        let f = self.network.send(message)
+            .map_err(|err| error!("Failed to initialize raft: {:?}", err))
+            .into_actor(self);
+        ctx.spawn(f);
 
-    fn handle(&mut self, message: InitNetwork, ctx: &mut Context<Self>) -> Self::Result {
-        self.init_network(message.0);
         self.schedule_next_tick(ctx);
     }
 }
 
 impl<T> Handler<TickMessage> for RaftClient<T>
-    where T: RaftStateMachine + 'static
+    where T: RaftStateMachine + 'static,
+          NetworkActor: Handler<RaftGroupStarted<T>>
 {
     type Result = ResponseActFuture<Self, (), Error>;
 
@@ -407,7 +410,8 @@ impl<T> Handler<TickMessage> for RaftClient<T>
 
 impl<O, T> Handler<RaftPropose<O, T>> for RaftClient<T>
 where T: RaftStateMachine + 'static,
-      O: StateMachineObserver<T> + 'static
+      O: StateMachineObserver<T> + 'static,
+      NetworkActor: Handler<RaftGroupStarted<T>>
 {
     type Result = Result<(), Error>;
 
@@ -419,7 +423,8 @@ where T: RaftStateMachine + 'static,
 }
 
 impl<T> Handler<RaftMessageReceived> for RaftClient<T>
-    where T: RaftStateMachine + 'static
+    where T: RaftStateMachine + 'static,
+          NetworkActor: Handler<RaftGroupStarted<T>>
 {
     type Result = Result<(), Error>;
 

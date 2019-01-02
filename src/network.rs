@@ -6,6 +6,7 @@ use crate::raft::{
     RaftClient,
     RaftMessageReceived,
     RaftPropose,
+    RaftStateMachine,
     StateMachineObserver,
 };
 use failure::{err_msg, Error};
@@ -253,7 +254,7 @@ fn future_to_sink<F, I, E>(f: F, ctx: RpcContext, sink: UnarySink<I>)
                 sink.fail(status).map_err(Error::from)
             },
         });
-    ctx.spawn(f.map(|_| ()).map_err(|_| error!("Failed to handle RPC")));
+    ctx.spawn(f.map(|_| ()).map_err(|err| error!("Failed to handle RPC: {:?}", err)));
 }
 
 pub struct NetworkActor {
@@ -275,6 +276,15 @@ struct ServerStarted {
 }
 
 #[derive(Message)]
+pub struct RaftGroupStarted<T>
+    where T: RaftStateMachine + 'static,
+          NetworkActor: Handler<RaftGroupStarted<T>>
+{
+    pub raft_group_id: u64,
+    pub raft_group: Addr<RaftClient<T>>
+}
+
+#[derive(Message)]
 #[rtype(result="Result<(), Error>")]
 pub struct CreateIndex {
     pub index_name: String,
@@ -283,26 +293,17 @@ pub struct CreateIndex {
 const GLOBAL_RAFT_ID: u64 = 0;
 
 impl NetworkActor {
-    fn new(
-        peer_id: u64,
-        raft: Addr<RaftClient<KeyValueStateMachine>>,
-    ) -> Self {
-        let mut kv_raft_groups = HashMap::new();
-        kv_raft_groups.insert(GLOBAL_RAFT_ID, raft);
+    fn new(peer_id: u64) -> Self {
         Self{
             peer_id: peer_id,
             server: None,
-            kv_raft_groups,
+            kv_raft_groups: HashMap::new(),
             search_raft_groups: HashMap::new(),
         }
     }
 
-    pub fn start(
-        peer_id: u64,
-        port: u16,
-        raft: Addr<RaftClient<KeyValueStateMachine>>,
-    ) -> Result<Addr<Self>, Error> {
-        let addr = Self::new(peer_id, raft).start();
+    pub fn start(peer_id: u64, port: u16) -> Result<Addr<Self>, Error> {
+        let addr = Self::new(peer_id).start();
         let service = create_internal(InternalServer{
             peer_id: peer_id,
             network: addr.clone(),
@@ -339,6 +340,7 @@ impl Handler<RaftMessageReceived> for NetworkActor {
     type Result = ResponseFuture<(), Error>;
 
     fn handle(&mut self, message: RaftMessageReceived, _ctx: &mut Context<Self>) -> Self::Result {
+        debug!("[group-{}] Received message for {}", message.raft_group_id, message.message.to);
         let kv_raft = self.kv_raft_groups.get(&message.raft_group_id)
             .cloned()
             .map(|r| r.recipient());
@@ -370,5 +372,21 @@ impl<O> Handler<RaftPropose<O, KeyValueStateMachine>> for NetworkActor
         let global = maybe_global.unwrap();
         let f = global.send(message).flatten();
         Box::new(f)
+    }
+}
+
+impl Handler<RaftGroupStarted<KeyValueStateMachine>> for NetworkActor {
+    type Result = ();
+
+    fn handle(&mut self, message: RaftGroupStarted<KeyValueStateMachine>, _ctx: &mut Context<Self>) {
+        self.kv_raft_groups.insert(message.raft_group_id, message.raft_group);
+    }
+}
+
+impl Handler<RaftGroupStarted<SearchStateMachine>> for NetworkActor {
+    type Result = ();
+
+    fn handle(&mut self, message: RaftGroupStarted<SearchStateMachine>, _ctx: &mut Context<Self>) {
+        self.search_raft_groups.insert(message.raft_group_id, message.raft_group);
     }
 }

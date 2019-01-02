@@ -31,6 +31,11 @@ fn build_system(config: &Config) -> Result<SystemRunner, Error> {
     let storage_engine = StorageEngine::new(&storage_root.join("cluster"))?;
     init_node(&config.master_ids, &storage_engine)?;
 
+    let network = NetworkActor::start(
+        config.node_id,
+        config.port,
+    )?;
+
     let node_router = NodeRouter::start(&config)?;
     let group_states = get_raft_groups(&storage_engine)?;
     let index_coordinator = IndexCoordinator::new(
@@ -38,6 +43,7 @@ fn build_system(config: &Config) -> Result<SystemRunner, Error> {
         node_router.clone(),
         storage_engine.clone(),
         &group_states,
+        &network,
     )?.start();
     let group_state = group_states[0].clone();
     let storage = RaftStorage::new(group_state, storage_engine)?;
@@ -48,13 +54,8 @@ fn build_system(config: &Config) -> Result<SystemRunner, Error> {
         storage,
         kv_state_machine,
         node_router.clone(),
+        &network,
     )?.start();
-    let network = NetworkActor::start(
-        config.node_id,
-        config.port,
-        raft.clone(),
-    )?;
-    raft.try_send(InitNetwork(network.clone()))?;
     start_web(config, node_router);
 
     Ok(sys)

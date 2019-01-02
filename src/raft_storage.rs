@@ -9,6 +9,7 @@ use crate::proto::{
     RaftLocalState,
 };
 use crate::storage_engine::{MessageWriteBatch, StorageEngine};
+use log::info;
 use failure::Error;
 use protobuf::Message;
 use raft::{
@@ -68,6 +69,7 @@ pub fn init_raft_group(
             state.mut_peers().push(peer);
         });
         engine.put_message(key.as_ref(), &state)?;
+        info!("Initialized raft group '{}'", state.id);
     }
 
     Ok(())

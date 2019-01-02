@@ -98,6 +98,7 @@ impl NodeRouter {
         message: raft::eraftpb::Message,
         raft_group_id: u64,
     ) -> impl RpcFuture<()> {
+        debug!("[group-{}] Routing message to {}", raft_group_id, message.to);
         future::result(self.peer(message.to))
             .and_then(move |peer| peer.raft_message(&message, raft_group_id))
     }
@@ -128,7 +129,7 @@ impl NodeRouter {
 
     fn peer(&self, id: u64) -> Result<RpcClient, Error> {
         let peers = self.peers.read().unwrap();
-        peers.get(&id).cloned().ok_or(err_msg("peer not found"))
+        peers.get(&id).cloned().ok_or_else(|| format_err!("peer '{}' not found", id))
     }
 
     fn leader_id(&self) -> u64 {
