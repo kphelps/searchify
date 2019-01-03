@@ -83,6 +83,7 @@ pub struct RaftPropose<O, S>
 where S: RaftStateMachine,
       O: StateMachineObserver<S>
 {
+    pub raft_group_id: u64,
     pub entry: <S as RaftStateMachine>::EntryType,
     pub observer: O,
 }
@@ -92,7 +93,16 @@ where S: RaftStateMachine,
       O: StateMachineObserver<S>
 {
     pub fn new(entry: S::EntryType, observer: O) -> Self {
+        Self::new_for_group(0, entry, observer)
+    }
+
+    pub fn new_for_group(
+        raft_group_id: u64,
+        entry: S::EntryType,
+        observer: O,
+    ) -> Self {
         Self {
+            raft_group_id,
             entry,
             observer,
         }

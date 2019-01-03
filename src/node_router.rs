@@ -127,6 +127,26 @@ impl NodeRouter {
         self.leader_id.store(id as usize, Ordering::Relaxed);
     }
 
+    pub fn index_document(&self, index_name: String) -> impl RpcFuture<()> {
+        // TODO: should get handle, not clone
+        let peers = self.peers.clone();
+        self.get_shard_for_document(&index_name)
+            .and_then(move |shard| {
+                let client = peers.read().unwrap().get(&shard.replicas.first().unwrap().id).cloned().unwrap();
+                client.index_document(&index_name, shard.id)
+            })
+    }
+
+    fn get_shard_for_document(&self, index_name: &str) -> impl RpcFuture<ShardState> {
+        // TODO: obviously need a shard routing algorithm
+        self.list_indices().map(|response| {
+            info!("Indices: {:?}", response);
+            response.indices.first().unwrap()
+                .shards.first().unwrap()
+                .clone()
+        })
+    }
+
     fn peer(&self, id: u64) -> Result<RpcClient, Error> {
         let peers = self.peers.read().unwrap();
         peers.get(&id).cloned().ok_or_else(|| format_err!("peer '{}' not found", id))

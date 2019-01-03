@@ -17,6 +17,8 @@ service Internal {
   rpc ListIndices(ListIndicesRequest) returns (ListIndicesResponse) {}
   rpc ListNodes(ListNodesRequest) returns (ListNodesResponse) {}
   rpc ListShards(ListShardsRequest) returns (ListShardsResponse) {}
+
+  rpc IndexDocument(IndexDocumentRequest) returns (IndexDocumentResponse) {}
 }
 
 message HelloRequest {
@@ -83,6 +85,12 @@ message KeyValueEntry {
 }
 
 message SearchEntry {
+  oneof operation {
+    AddDocumentOperation add_document = 1;
+  }
+}
+
+message AddDocumentOperation {
 }
 
 message EntryContext {
@@ -128,6 +136,7 @@ message IndexState {
   uint64 shard_count = 3;
   uint64 replica_count = 4;
   string name = 5;
+  repeated ShardState shards = 6;
 }
 
 enum ShardStatus {
@@ -185,4 +194,11 @@ message ListShardsResponse {
 
 message SequenceState {
   uint64 value = 1;
+}
+
+message IndexDocumentRequest {
+  uint64 shard_id = 1;
+}
+
+message IndexDocumentResponse {
 }

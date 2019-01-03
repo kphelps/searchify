@@ -80,6 +80,7 @@ impl IndexCoordinator {
             self.node_router.clone(),
             &self.raft_storage_engine,
             &self.network,
+            &self.config.search_storage_root(),
         )?;
         self.shards.insert(state.get_id(), shard);
         Ok(())
@@ -93,6 +94,7 @@ impl IndexCoordinator {
             self.node_router.clone(),
             &self.raft_storage_engine,
             &self.network,
+            &self.config.search_storage_root(),
         )?;
         self.shards.insert(shard_state.get_id(), shard);
         Ok(())

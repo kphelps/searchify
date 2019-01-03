@@ -1,7 +1,15 @@
 #+TODO: TODO DOING | DONE
 
-* DOING CreateIndex()
-* DOING Node liveness
-* TODO Gossip Protocol
-* TODO Non-master nodes
-* TODO Events for node based on leader state changes
+* Todo list
+  
+  - Document routing
+  - Upsert
+  - Gossip infrastructure
+  - Allocate under replicated shards when nodes come online
+  - Cluster health (i.e. are we under replicated? are we available?)
+  - Allow nodes to join cluster without joining master raft group
+  - Don't poll for state changes, leader should broadcast events
+  
+* Tantivy Issues
+  - Max field count is 255
+  - Threading is weird. I want to manage the thread pool across many indices

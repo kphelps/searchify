@@ -207,18 +207,31 @@ impl Internal for InternalServer {
         });
         propose_api_result(&self.network, proposal, receiver, ctx, sink);
     }
+
+    fn index_document(
+        &mut self,
+        ctx: RpcContext,
+        req: IndexDocumentRequest,
+        sink: UnarySink<IndexDocumentResponse>,
+    ) {
+        let (sender, receiver) = channel();
+        let proposal = SearchStateMachine::propose_add_document(req, sender);
+        propose_api(&self.network, proposal, receiver, ctx, sink);
+    }
 }
 
 
-fn propose_api<T, O>(
+fn propose_api<T, O, K>(
     network: &Addr<NetworkActor>,
-    proposal: RaftPropose<O, KeyValueStateMachine>,
+    proposal: RaftPropose<O, K>,
     receiver: Receiver<T>,
     ctx: RpcContext,
     sink: UnarySink<T>,
 )
 where T: Default + Debug + Send + 'static,
-      O: StateMachineObserver<KeyValueStateMachine> + Send + 'static
+      O: StateMachineObserver<K> + Send + 'static,
+      K: RaftStateMachine + 'static,
+      NetworkActor: Handler<RaftPropose<O, K>>
 {
     let f = network.send(proposal).flatten().and_then(|_| receiver.from_err());
     future_to_sink(f, ctx, sink);
@@ -371,6 +384,24 @@ impl<O> Handler<RaftPropose<O, KeyValueStateMachine>> for NetworkActor
         }
         let global = maybe_global.unwrap();
         let f = global.send(message).flatten();
+        Box::new(f)
+    }
+}
+
+impl<O> Handler<RaftPropose<O, SearchStateMachine>> for NetworkActor
+where O: StateMachineObserver<SearchStateMachine> + Send + 'static
+{
+    type Result = ResponseFuture<(), Error>;
+
+    fn handle(&mut self, message: RaftPropose<O, SearchStateMachine>, _ctx: &mut Context<Self>)
+              -> Self::Result
+    {
+        let maybe_group = self.search_raft_groups.get(&message.raft_group_id);
+        if maybe_group.is_none() {
+            return Box::new(future::err(err_msg("Not a member of shard group")))
+        }
+        let group = maybe_group.unwrap();
+        let f = group.send(message).flatten();
         Box::new(f)
     }
 }

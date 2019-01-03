@@ -31,12 +31,13 @@ mod rpc_client;
 mod shard;
 mod search;
 mod search_state_machine;
+mod search_storage;
 mod shard_tracker;
 mod storage_engine;
 mod web;
 
 fn main() {
-    std::env::set_var("RUST_LOG", "searchify=info,actix_web=info,raft=debug");
+    std::env::set_var("RUST_LOG", "searchify=info,actix_web=info,raft=info,tantivy=info");
     env_logger::init();
     if let Err(err) = start() {
         error!("Failure: {}", err);

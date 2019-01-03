@@ -10,6 +10,8 @@ use crate::storage_engine::StorageEngine;
 use crate::proto::*;
 use failure::{Error, format_err};
 use std::collections::HashMap;
+use std::path::Path;
+use tantivy::Document;
 
 type RaftStateCell = CachedPersistentCell<RaftGroupMetaState>;
 type StateCell = CachedPersistentCell<ShardState>;
@@ -38,7 +40,8 @@ impl Shard {
         node_id: u64,
         node_router: NodeRouterHandle,
         raft_storage_engine: &StorageEngine,
-        network: &Addr<NetworkActor>
+        network: &Addr<NetworkActor>,
+        storage_root: &str,
     ) -> Result<Self, Error> {
         let raft_state = new_raft_state_cell(raft_storage_engine, id)?;
         let group_state = raft_state.get().ok_or(format_err!("Shard does not exist: {}", id))?;
@@ -46,7 +49,8 @@ impl Shard {
         let state = new_state_cell(raft_storage_engine, id)?;
         state.get().ok_or(format_err!("Shard does not exist: {}", id))?;
 
-        let state_machine = SearchStateMachine::new();
+        let storage_path = Path::new(storage_root).join(id.to_string());
+        let state_machine = SearchStateMachine::new(storage_path)?;
 
         let raft_storage = RaftStorage::new(group_state.clone(), raft_storage_engine.clone())?;
         let raft = RaftClient::new(
@@ -71,7 +75,8 @@ impl Shard {
         node_id: u64,
         node_router: NodeRouterHandle,
         raft_storage_engine: &StorageEngine,
-        network: &Addr<NetworkActor>
+        network: &Addr<NetworkActor>,
+        storage_root: &str,
     ) -> Result<Self, Error> {
         init_raft_group(
             raft_storage_engine,
@@ -91,6 +96,7 @@ impl Shard {
             node_router,
             raft_storage_engine,
             network,
+            storage_root,
         )
     }
 }

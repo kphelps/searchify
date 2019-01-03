@@ -1,5 +1,6 @@
 use config::{ConfigError, Config as ConfigBuilder, File, Environment};
 use serde_derive::Deserialize;
+use std::path::Path;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
@@ -8,6 +9,7 @@ pub struct Config {
     pub master_ids: Vec<u64>,
     pub seeds: Vec<String>,
     pub storage_root: String,
+    pub search_storage_root: Option<String>,
     pub web: WebConfig,
 }
 
@@ -40,5 +42,10 @@ impl Config {
             .set_default("web.host", "0.0.0.0")?
             .set_default("web.port", 8080)?;
         Ok(s)
+    }
+
+    pub fn search_storage_root(&self) -> String {
+        self.search_storage_root.clone()
+            .unwrap_or_else(|| Path::new(&self.storage_root).join("search").to_str().unwrap().to_string())
     }
 }

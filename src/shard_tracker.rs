@@ -43,6 +43,10 @@ impl ShardTracker {
         self.by_node.get(&node_id, &self.shards)
     }
 
+    pub fn get_shards_for_index(&self, index_id: u64) -> Vec<ShardState> {
+        self.by_index.get(&index_id, &self.shards)
+    }
+
     pub fn delete_shards_for_index(&mut self, index_id: u64) -> Result<(), Error> {
         let shards = self.by_index.get(&index_id, &self.shards);
         shards.iter()

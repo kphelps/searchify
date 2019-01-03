@@ -43,7 +43,10 @@ impl RequestContext {
     }
 }
 
-fn create_index(request: &HttpRequest<RequestContext>) -> impl Future<Item=Json<Test>, Error=Error> {
+trait JsonFuture<T> = Future<Item=Json<T>, Error=Error>;
+trait HttpResponseFuture = Future<Item=HttpResponse, Error=Error>;
+
+fn create_index(request: &HttpRequest<RequestContext>) -> impl JsonFuture<Test> {
     let network = request.state().node_router();
     future::result(request.match_info().query("name"))
         .from_err::<Error>()
@@ -55,7 +58,7 @@ fn create_index(request: &HttpRequest<RequestContext>) -> impl Future<Item=Json<
         .from_err()
 }
 
-fn delete_index(request: &HttpRequest<RequestContext>) -> impl Future<Item=HttpResponse, Error=Error> {
+fn delete_index(request: &HttpRequest<RequestContext>) -> impl HttpResponseFuture {
     let network = request.state().node_router();
     future::result(request.match_info().query("name"))
         .from_err::<Error>()
@@ -63,7 +66,7 @@ fn delete_index(request: &HttpRequest<RequestContext>) -> impl Future<Item=HttpR
         .map(|_| HttpResponse::NoContent().finish())
 }
 
-fn list_indices(request: &HttpRequest<RequestContext>) -> impl Future<Item=Json<Vec<Index>>, Error=Error> {
+fn list_indices(request: &HttpRequest<RequestContext>) -> impl JsonFuture<Vec<Index>> {
     request.state().node_router().list_indices().map(|response| {
         let indices = response.indices.into_iter().map(|index| {
             Index {
@@ -76,6 +79,18 @@ fn list_indices(request: &HttpRequest<RequestContext>) -> impl Future<Item=Json<
     })
 }
 
+#[derive(Serialize)]
+struct IndexDocumentResponse {
+}
+
+fn index_document(request: &HttpRequest<RequestContext>) -> impl JsonFuture<IndexDocumentResponse> {
+    let router = request.state().node_router();
+    future::result(request.match_info().query("name")).from_err::<Error>()
+        .and_then(move |index_name: String| {
+            router.index_document(index_name).map(|_| Json(IndexDocumentResponse{}))
+        })
+}
+
 pub fn start_web(
     config: &Config,
     node_router: NodeRouterHandle,
@@ -85,6 +100,9 @@ pub fn start_web(
         .resource("/{name}", |r| {
             r.post().a(create_index);
             r.delete().a(delete_index);
+        })
+        .resource("/{name}/_doc/{doc_id}", |r| {
+            r.post().a(index_document);
         })
         .resource("/_cat/indices", |r| r.get().a(list_indices))
         .finish();

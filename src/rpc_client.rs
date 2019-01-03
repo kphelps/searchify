@@ -119,6 +119,12 @@ impl RpcClient {
         futurize_unit(self.client.heartbeat_async_opt(&request, self.options()))
     }
 
+    pub fn index_document(&self, index_name: &str, shard_id: u64) -> impl RpcFuture<()> {
+        let mut request = IndexDocumentRequest::new();
+        request.shard_id = self.node_id;
+        futurize_unit(self.client.index_document_async_opt(&request, self.options()))
+    }
+
     fn options(&self) -> CallOption {
         CallOption::default()
             .wait_for_ready(true)

@@ -68,8 +68,8 @@ impl KeyValueStateMachine {
         index_state.shard_count = 2;
         index_state.replica_count = 3;
         index_state.name = request.name;
-        let mut shards = self.allocate_shards(&index_state);
         self.indices.create(&mut index_state)?;
+        let mut shards = self.allocate_shards(&index_state);
         for shard in shards.iter_mut() {
             self.shards.create_shard(shard)?;
         }
@@ -94,6 +94,7 @@ impl KeyValueStateMachine {
         let mut peer_i = 0;
         (0..shard_count).map(|_| {
             let mut shard = ShardState::new();
+            shard.index_id = index_state.id;
             let max_replicas = std::cmp::min(index_state.replica_count, nodes.len() as u64);
             // TODO: Need to ahndle not being fully replicated
             (0..max_replicas).for_each(|_| {
@@ -115,7 +116,12 @@ impl KeyValueStateMachine {
     }
 
     pub fn list_indices(&self) -> Vec<IndexState> {
-        self.indices.all()
+        self.indices.all().into_iter().map(|mut index_state| {
+            let shards = self.shards.get_shards_for_index(index_state.id);
+            info!("Shahrds: {:?}", shards);
+            index_state.set_shards(shards.into());
+            index_state
+        }).collect()
     }
 
     pub fn shards_for_node(&self, node: u64) -> Result<Vec<ShardState>, Error> {
