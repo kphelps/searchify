@@ -13,7 +13,7 @@ service Internal {
   rpc Health(HealthRequest) returns (HealthResponse) {}
   rpc CreateIndex(CreateIndexRequest) returns (CreateIndexResponse) {}
   rpc DeleteIndex(DeleteIndexRequest) returns (EmptyResponse) {}
-  rpc ShowIndex(ShowIndexRequest) returns (IndexState) {}
+  rpc GetIndex(GetIndexRequest) returns (IndexState) {}
   rpc ListIndices(ListIndicesRequest) returns (ListIndicesResponse) {}
   rpc ListNodes(ListNodesRequest) returns (ListNodesResponse) {}
   rpc ListShards(ListShardsRequest) returns (ListShardsResponse) {}
@@ -100,6 +100,8 @@ message EntryContext {
 message CreateIndexRequest {
   string name = 1;
   IndexSchema schema = 2;
+  uint64 shard_count = 3;
+  uint64 replica_count = 4;
 }
 
 message IndexSchema {
@@ -113,7 +115,7 @@ message DeleteIndexRequest {
   string name = 1;
 }
 
-message ShowIndexRequest {
+message GetIndexRequest {
   string name = 1;
 }
 
@@ -149,6 +151,12 @@ message ShardState {
   uint64 index_id = 2;
   ShardStatus status = 3;
   repeated Peer replicas = 4;
+  IdRange range = 5;
+}
+
+message IdRange {
+  uint64 low = 1;
+  uint64 high = 2;
 }
 
 message LivenessHeartbeat {

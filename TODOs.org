@@ -2,9 +2,24 @@
 
 * Todo list
   
+** High Priority
+
   - Document routing
+    - Range based? Allows local splitting, must generate our own ids
+    - Hash based?
+    - Hybrid? Use `id` as a hashable key and store the keys in ranges
+      - probably need to store the id as 128bit or string?
   - Upsert
+    - use bloom filter to track if a document exists
+    - delete document before indexing if needed
+  - Basic Schema (string, int fields?)
+  - Document serialization
+
+** Everything else
+   
   - Gossip infrastructure
+    - Cache shard routing table
+    - Broadcast member list
   - Allocate under replicated shards when nodes come online
   - Cluster health (i.e. are we under replicated? are we available?)
   - Allow nodes to join cluster without joining master raft group
@@ -13,3 +28,12 @@
 * Tantivy Issues
   - Max field count is 255
   - Threading is weird. I want to manage the thread pool across many indices
+
+* Neat Ideas
+  - Avoid dirty reads!
+  - Can we provide even better consistency guarantees?
+  - Joins! 
+    - https://www.memsql.com/blog/scaling-distributed-joins/
+  - Autoscaling
+    - Split shards at certain conditions
+    - Add replicas at certain conditions

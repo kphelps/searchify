@@ -73,9 +73,16 @@ impl RpcClient {
         futurize(self.client.get_async_opt(&request, self.options()))
     }
 
-    pub fn create_index(&self, name: &str) -> impl RpcFuture<()> {
+    pub fn create_index(
+        &self,
+        name: &str,
+        shard_count: u64,
+        replica_count: u64,
+    ) -> impl RpcFuture<()> {
         let mut request = CreateIndexRequest::new();
         request.set_name(name.to_string());
+        request.set_shard_count(shard_count);
+        request.set_replica_count(replica_count);
         futurize_unit(self.client.create_index_async_opt(&request, self.options()))
     }
 
@@ -85,15 +92,15 @@ impl RpcClient {
         futurize_unit(self.client.delete_index_async_opt(&request, self.options()))
     }
 
+    pub fn get_index(&self, name: &str) -> impl RpcFuture<IndexState> {
+        let mut request = GetIndexRequest::new();
+        request.set_name(name.to_string());
+        futurize(self.client.get_index_async_opt(&request, self.options()))
+    }
+
     pub fn list_indices(&self) -> impl RpcFuture<ListIndicesResponse> {
         let request = ListIndicesRequest::new();
         futurize(self.client.list_indices_async_opt(&request, self.options()))
-    }
-
-    pub fn show_index(&self, name: &str) -> impl RpcFuture<IndexState> {
-        let mut request = ShowIndexRequest::new();
-        request.set_name(name.to_string());
-        futurize(self.client.show_index_async_opt(&request, self.options()))
     }
 
     pub fn list_shards(&self, node: u64) -> impl RpcFuture<Vec<ShardState>> {
@@ -121,7 +128,7 @@ impl RpcClient {
 
     pub fn index_document(&self, index_name: &str, shard_id: u64) -> impl RpcFuture<()> {
         let mut request = IndexDocumentRequest::new();
-        request.shard_id = self.node_id;
+        request.shard_id = shard_id;
         futurize_unit(self.client.index_document_async_opt(&request, self.options()))
     }
 

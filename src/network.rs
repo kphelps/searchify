@@ -122,10 +122,10 @@ impl Internal for InternalServer {
         propose_api(&self.network, proposal, receiver, ctx, sink);
     }
 
-    fn show_index(
+    fn get_index(
         &mut self,
         ctx: RpcContext,
-        req: ShowIndexRequest,
+        req: GetIndexRequest,
         sink: UnarySink<IndexState>,
     ) {
         let (sender, receiver) = channel();
@@ -401,6 +401,7 @@ where O: StateMachineObserver<SearchStateMachine> + Send + 'static
             return Box::new(future::err(err_msg("Not a member of shard group")))
         }
         let group = maybe_group.unwrap();
+        debug!("[group-{}] Proposal!", message.raft_group_id);
         let f = group.send(message).flatten();
         Box::new(f)
     }

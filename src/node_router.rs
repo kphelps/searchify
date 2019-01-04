@@ -103,12 +103,23 @@ impl NodeRouter {
             .and_then(move |peer| peer.raft_message(&message, raft_group_id))
     }
 
-    pub fn create_index(&self, name: String) -> impl RpcFuture<()> {
-        self.with_leader_client(move |client| client.create_index(&name))
+    pub fn create_index(
+        &self,
+        name: String,
+        shard_count: u64,
+        replica_count: u64,
+    ) -> impl RpcFuture<()> {
+        self.with_leader_client(move |client| {
+            client.create_index(&name, shard_count, replica_count)
+        })
     }
 
     pub fn delete_index(&self, name: String) -> impl RpcFuture<()> {
         self.with_leader_client(move |client| client.delete_index(&name))
+    }
+
+    pub fn get_index(&self, name: String) -> impl RpcFuture<IndexState> {
+        self.with_leader_client(move |client| client.get_index(&name))
     }
 
     pub fn list_indices(&self) -> impl RpcFuture<ListIndicesResponse> {
@@ -127,23 +138,32 @@ impl NodeRouter {
         self.leader_id.store(id as usize, Ordering::Relaxed);
     }
 
-    pub fn index_document(&self, index_name: String) -> impl RpcFuture<()> {
+    pub fn index_document(
+        &self,
+        index_name: String,
+        document_id: u64,
+    ) -> impl RpcFuture<()> {
         // TODO: should get handle, not clone
         let peers = self.peers.clone();
-        self.get_shard_for_document(&index_name)
-            .and_then(move |shard| {
-                let client = peers.read().unwrap().get(&shard.replicas.first().unwrap().id).cloned().unwrap();
-                client.index_document(&index_name, shard.id)
-            })
+        self.get_shard_for_document(&index_name, document_id).and_then(move |shard| {
+            let replica_id = shard.replicas.first().unwrap().id;
+            let client = peers.read().unwrap().get(&replica_id).cloned().unwrap();
+            client.index_document(&index_name, shard.id)
+        })
     }
 
-    fn get_shard_for_document(&self, index_name: &str) -> impl RpcFuture<ShardState> {
+    fn get_shard_for_document(
+        &self,
+        index_name: &str,
+        document_id: u64,
+    ) -> impl RpcFuture<ShardState> {
         // TODO: obviously need a shard routing algorithm
-        self.list_indices().map(|response| {
-            info!("Indices: {:?}", response);
-            response.indices.first().unwrap()
-                .shards.first().unwrap()
-                .clone()
+        self.get_index(index_name.to_string()).map(move |index| {
+            index.shards.into_iter().find(|shard| {
+                let low_id = shard.get_range().low;
+                let high_id = shard.get_range().high;
+                low_id <= document_id && document_id <= high_id
+            }).expect("Invalid range")
         })
     }
 

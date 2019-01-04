@@ -37,7 +37,7 @@ mod storage_engine;
 mod web;
 
 fn main() {
-    std::env::set_var("RUST_LOG", "searchify=info,actix_web=info,raft=info,tantivy=info");
+    std::env::set_var("RUST_LOG", "searchify=info,actix_web=info,raft=warn,tantivy=warn");
     env_logger::init();
     if let Err(err) = start() {
         error!("Failure: {}", err);

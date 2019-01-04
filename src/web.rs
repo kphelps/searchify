@@ -6,18 +6,38 @@ use actix_web::{
     http::{Method},
     HttpRequest,
     HttpResponse,
+    Path,
+    State,
     middleware::Logger,
 };
 use crate::config::Config;
 use crate::node_router::NodeRouterHandle;
 use failure::Error;
 use futures::{prelude::*, future};
-use serde_derive::Serialize;
 use log::info;
+use serde_derive::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hasher;
 
 #[derive(Serialize)]
 struct Test {
     index_name: String,
+}
+
+#[derive(Deserialize)]
+struct IndexSettings {
+    number_of_shards: u64,
+    number_of_replicas: u64,
+}
+
+#[derive(Deserialize)]
+struct CreateIndexRequest {
+    settings: IndexSettings,
+}
+
+#[derive(Deserialize)]
+struct IndexPath {
+    name: String,
 }
 
 #[derive(Serialize)]
@@ -46,16 +66,14 @@ impl RequestContext {
 trait JsonFuture<T> = Future<Item=Json<T>, Error=Error>;
 trait HttpResponseFuture = Future<Item=HttpResponse, Error=Error>;
 
-fn create_index(request: &HttpRequest<RequestContext>) -> impl JsonFuture<Test> {
-    let network = request.state().node_router();
-    future::result(request.match_info().query("name"))
-        .from_err::<Error>()
-        .and_then(move |index_name: String| {
-            network.create_index(index_name.clone())
-                .map(|_| index_name)
-        })
-        .map(|index_name| Json(Test{index_name: index_name}))
-        .from_err()
+fn create_index((ctx, request, path): (State<RequestContext>, Json<CreateIndexRequest>, Path<IndexPath>))
+    -> impl JsonFuture<Test>
+{
+    ctx.node_router.create_index(
+        path.name.clone(),
+        request.settings.number_of_shards,
+        request.settings.number_of_replicas,
+    ).map(move |_| Json(Test{index_name: path.name.clone()})).from_err()
 }
 
 fn delete_index(request: &HttpRequest<RequestContext>) -> impl HttpResponseFuture {
@@ -83,12 +101,19 @@ fn list_indices(request: &HttpRequest<RequestContext>) -> impl JsonFuture<Vec<In
 struct IndexDocumentResponse {
 }
 
-fn index_document(request: &HttpRequest<RequestContext>) -> impl JsonFuture<IndexDocumentResponse> {
-    let router = request.state().node_router();
-    future::result(request.match_info().query("name")).from_err::<Error>()
-        .and_then(move |index_name: String| {
-            router.index_document(index_name).map(|_| Json(IndexDocumentResponse{}))
-        })
+#[derive(Deserialize)]
+struct DocumentPath {
+    name: String,
+    document_id: u64,
+}
+
+fn index_document((ctx, path): (State<RequestContext>, Path<DocumentPath>))
+    -> impl JsonFuture<IndexDocumentResponse>
+{
+    let mut hasher = DefaultHasher::new();
+    hasher.write_u64(path.document_id);
+    ctx.node_router.index_document(path.name.clone(), hasher.finish())
+        .map(|_| Json(IndexDocumentResponse{}))
 }
 
 pub fn start_web(
@@ -98,11 +123,11 @@ pub fn start_web(
     let app_ctor = move || App::with_state(RequestContext::new(node_router.clone()))
         .middleware(Logger::default())
         .resource("/{name}", |r| {
-            r.post().a(create_index);
+            r.post().with_async(create_index);
             r.delete().a(delete_index);
         })
-        .resource("/{name}/_doc/{doc_id}", |r| {
-            r.post().a(index_document);
+        .resource("/{name}/_doc/{document_id}", |r| {
+            r.post().with_async(index_document);
         })
         .resource("/_cat/indices", |r| r.get().a(list_indices))
         .finish();
