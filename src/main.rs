@@ -11,6 +11,8 @@ use clap::{Arg, App};
 use failure::Error;
 use log::error;
 
+#[macro_use] mod storage_engine;
+
 mod cached_persistent_cell;
 mod cached_persistent_map;
 mod config;
@@ -19,6 +21,7 @@ mod keys;
 mod id_generator;
 mod kv_index;
 mod index_tracker;
+mod mappings;
 mod network;
 mod node;
 mod node_router;
@@ -33,11 +36,10 @@ mod search;
 mod search_state_machine;
 mod search_storage;
 mod shard_tracker;
-mod storage_engine;
 mod web;
 
 fn main() {
-    std::env::set_var("RUST_LOG", "searchify=info,actix_web=info,raft=warn,tantivy=warn");
+    std::env::set_var("RUST_LOG", "searchify=info,actix_web=info,raft=info,tantivy=warn");
     env_logger::init();
     if let Err(err) = start() {
         error!("Failure: {}", err);

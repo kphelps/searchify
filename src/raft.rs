@@ -122,7 +122,7 @@ pub struct InitNetwork(pub Addr<NetworkActor>);
 pub trait RaftStateMachine {
     type EntryType: Message;
 
-    fn apply(&mut self, entry: Self::EntryType);
+    fn apply(&mut self, entry: Self::EntryType) -> Result<(), Error>;
 }
 
 pub trait RaftEntryHandler<T> {
@@ -344,7 +344,11 @@ impl<T> RaftState<T>
         debug!("NormalEntry: {:?}", entry);
         let ctx = parse_from_bytes::<EntryContext>(&entry.context)?;
         let parsed = parse_from_bytes::<T::EntryType>(&entry.data)?;
-        self.state_machine.apply(parsed);
+        let apply_result = self.state_machine.apply(parsed);
+        if let Err(err) = apply_result {
+            let parsed = parse_from_bytes::<T::EntryType>(&entry.data)?;
+            warn!("Failed to apply '{:?}': {}", parsed, err);
+        }
         if let Some(observer) = self.observers.remove(&ctx.id) {
             observer.observe(&self.state_machine);
         }

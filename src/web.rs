@@ -11,11 +11,13 @@ use actix_web::{
     middleware::Logger,
 };
 use crate::config::Config;
+use crate::mappings::Mappings;
 use crate::node_router::NodeRouterHandle;
 use failure::Error;
 use futures::{prelude::*, future};
 use log::info;
 use serde_derive::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
 
@@ -33,6 +35,7 @@ struct IndexSettings {
 #[derive(Deserialize)]
 struct CreateIndexRequest {
     settings: IndexSettings,
+    mappings: Mappings,
 }
 
 #[derive(Deserialize)]
@@ -73,6 +76,7 @@ fn create_index((ctx, request, path): (State<RequestContext>, Json<CreateIndexRe
         path.name.clone(),
         request.settings.number_of_shards,
         request.settings.number_of_replicas,
+        request.mappings.clone(),
     ).map(move |_| Json(Test{index_name: path.name.clone()})).from_err()
 }
 
@@ -107,12 +111,12 @@ struct DocumentPath {
     document_id: u64,
 }
 
-fn index_document((ctx, path): (State<RequestContext>, Path<DocumentPath>))
+fn index_document((ctx, payload, path): (State<RequestContext>, Json<Value>, Path<DocumentPath>))
     -> impl JsonFuture<IndexDocumentResponse>
 {
     let mut hasher = DefaultHasher::new();
     hasher.write_u64(path.document_id);
-    ctx.node_router.index_document(path.name.clone(), hasher.finish())
+    ctx.node_router.index_document(path.name.clone(), hasher.finish(), payload.0)
         .map(|_| Json(IndexDocumentResponse{}))
 }
 

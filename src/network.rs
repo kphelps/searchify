@@ -1,5 +1,6 @@
 use actix::prelude::*;
 use crate::key_value_state_machine::KeyValueStateMachine;
+use crate::mappings::Mappings;
 use crate::search_state_machine::SearchStateMachine;
 use crate::proto::*;
 use crate::raft::{
@@ -106,9 +107,17 @@ impl Internal for InternalServer {
         req: CreateIndexRequest,
         sink: UnarySink<CreateIndexResponse>,
     ) {
-        let (sender, receiver) = channel();
-        let proposal = KeyValueStateMachine::propose_create_index(req, sender);
-        propose_api(&self.network, proposal, receiver, ctx, sink);
+        if let Err(err) = serde_json::from_str::<Mappings>(&req.mappings) {
+            let status = RpcStatus::new(
+                RpcStatusCode::InvalidArgument,
+                Some(format!("{}", err))
+            );
+            ctx.spawn(sink.fail(status).map(|_| ()).map_err(|_| ()));
+        } else {
+            let (sender, receiver) = channel();
+            let proposal = KeyValueStateMachine::propose_create_index(req, sender);
+            propose_api(&self.network, proposal, receiver, ctx, sink);
+        }
     }
 
     fn delete_index(

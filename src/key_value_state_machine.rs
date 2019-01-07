@@ -1,4 +1,4 @@
-use crate::keys::{self, KeySpace};
+use crate::keys::KeySpace;
 use crate::cached_persistent_map::CachedPersistentMap;
 use crate::index_tracker::IndexTracker;
 use crate::proto::*;
@@ -35,17 +35,17 @@ impl KeyValueStateMachine {
 impl RaftStateMachine for KeyValueStateMachine {
     type EntryType = KeyValueEntry;
 
-    fn apply(&mut self, entry: KeyValueEntry) {
+    fn apply(&mut self, entry: KeyValueEntry) -> Result<(), Error> {
         if let None = entry.entry {
-            return;
+            return Ok(());
         }
 
-        let _ = match entry.entry.unwrap() {
+        match entry.entry.unwrap() {
             KeyValueEntry_oneof_entry::set(kv) => self.set(kv),
             KeyValueEntry_oneof_entry::create_index(req) => self.create_index(req),
             KeyValueEntry_oneof_entry::delete_index(req) => self.delete_index(req),
             KeyValueEntry_oneof_entry::heartbeat(heartbeat) => self.liveness_heartbeat(heartbeat),
-        };
+        }
     }
 }
 
@@ -68,6 +68,7 @@ impl KeyValueStateMachine {
         index_state.shard_count = if request.shard_count == 0 { 1 } else { request.shard_count };
         index_state.replica_count = if request.replica_count == 0 { 3 } else { request.replica_count };
         index_state.name = request.name;
+        index_state.mappings = request.mappings;
         self.indices.create(&mut index_state)?;
         let mut shards = self.allocate_shards(&index_state);
         for shard in shards.iter_mut() {
@@ -103,6 +104,7 @@ impl KeyValueStateMachine {
             let high = if i == shard_count - 1 { size } else { (interval * (i + 1)) - 1 };
             range.set_high(high);
             shard.set_range(range);
+            shard.set_mappings(index_state.mappings.clone());
             let max_replicas = std::cmp::min(index_state.replica_count, nodes.len() as u64);
             // TODO: Need to ahndle not being fully replicated
             (0..max_replicas).for_each(|_| {

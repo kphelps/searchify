@@ -1,9 +1,8 @@
 use crate::keys::{FromKey, KeyPart, MetaKey};
 use crate::kv_index::Keyable;
 use crate::persistent_map::PersistentMap;
-use crate::storage_engine::StorageEngine;
+use crate::storage_engine::{Persistable, StorageEngine};
 use failure::Error;
-use protobuf::Message;
 use std::collections::HashMap;
 use std::hash::Hash;
 
@@ -14,7 +13,7 @@ pub struct CachedPersistentMap<K, V> {
 
 impl<K, V> CachedPersistentMap<K, V>
 where K: Into<KeyPart> + FromKey + Clone + Eq + Hash,
-      V: Message + Clone
+      V: Persistable + Clone
 {
     pub fn new(engine: &StorageEngine, prefix: MetaKey) -> Result<Self, Error> {
         let mut map = Self {

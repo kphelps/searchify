@@ -2,8 +2,14 @@ use crate::keys::IntoKey;
 use failure::{err_msg, Error};
 use protobuf::{self, Message};
 use rocksdb::{DB, ReadOptions, Writable, WriteBatch};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
+
+pub trait Persistable: Sized {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error>;
+    fn from_bytes(bytes: &[u8]) -> Result<Self, Error>;
+}
 
 #[derive(Clone)]
 pub struct StorageEngine {
@@ -20,22 +26,23 @@ impl StorageEngine {
         })
     }
 
-    pub fn get_message<M, K>(&self, key: K) -> Result<Option<M>, Error>
+    pub fn get_message<P, K>(&self, key: K) -> Result<Option<P>, Error>
     where K: IntoKey,
-          M: Message
+          P: Persistable
     {
         let opt = self.db.get(&key.into_key()).map_err(err_msg)?;
         if let Some(inner) = opt {
-            return Ok(Some(protobuf::parse_from_bytes(&inner)?))
+            let parsed = <P as Persistable>::from_bytes(&inner)?;
+            return Ok(Some(parsed));
         }
         Ok(None)
     }
 
-    pub fn put_message<M, K>(&self, key: K, value: &M) -> Result<(), Error>
+    pub fn put_message<P, K>(&self, key: K, value: &P) -> Result<(), Error>
     where K: IntoKey,
-          M: Message
+          P: Persistable
     {
-        let bytes = value.write_to_bytes()?;
+        let bytes = value.to_bytes()?;
         self.db.put(&key.into_key(), &bytes).map_err(err_msg)
     }
 
@@ -92,11 +99,11 @@ impl MessageWriteBatch {
         }
     }
 
-    pub fn put<M, K>(&mut self, key: K, value: &M) -> Result<(), Error>
+    pub fn put<P, K>(&mut self, key: K, value: &P) -> Result<(), Error>
     where K: IntoKey,
-          M: Message
+          P: Persistable
     {
-        let bytes = value.write_to_bytes()?;
+        let bytes = value.to_bytes()?;
         self.batch.put(&key.into_key(), &bytes).map_err(err_msg)
     }
 
@@ -105,3 +112,26 @@ impl MessageWriteBatch {
     }
 }
 
+impl<T> Persistable for T where T: Message {
+    fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        self.write_to_bytes().map_err(|e| e.into())
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Result<T, Error> {
+        protobuf::parse_from_bytes(bytes).map_err(|e| e.into())
+    }
+}
+
+macro_rules! impl_persistable {
+    ($tipe:ty) => {
+        impl $crate::storage_engine::Persistable for $tipe {
+            fn to_bytes(&self) -> Result<Vec<u8>, failure::Error> {
+                Ok(serde_json::to_vec(self)?)
+            }
+
+            fn from_bytes(bytes: &[u8]) -> Result<$tipe, failure::Error> {
+                Ok(serde_json::from_slice(bytes)?)
+            }
+        }
+    }
+}

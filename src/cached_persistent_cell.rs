@@ -1,8 +1,7 @@
 use crate::keys::MetaKey;
 use crate::persistent_cell::PersistentCell;
-use crate::storage_engine::StorageEngine;
+use crate::storage_engine::{Persistable, StorageEngine};
 use failure::Error;
-use protobuf::Message;
 
 pub struct CachedPersistentCell<T> {
     cache: Option<T>,
@@ -10,7 +9,7 @@ pub struct CachedPersistentCell<T> {
 }
 
 impl<T> CachedPersistentCell<T>
-where T: Message + Clone
+where T: Persistable + Clone
 {
     pub fn new(engine: &StorageEngine, key: MetaKey) -> Result<Self, Error> {
         let mut cell = Self {

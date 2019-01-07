@@ -1,7 +1,6 @@
 use crate::keys::{FromKey, KeyPart, MetaKey};
-use crate::storage_engine::StorageEngine;
+use crate::storage_engine::{Persistable, StorageEngine};
 use failure::{Error, err_msg};
-use protobuf::Message;
 use std::hash::Hash;
 use std::marker::PhantomData;
 
@@ -14,7 +13,7 @@ pub struct PersistentMap<K, V> {
 
 impl<K, V> PersistentMap<K, V>
 where K: Into<KeyPart> + FromKey + Clone + Eq + Hash,
-      V: Message + Clone
+      V: Persistable + Clone
 {
     pub fn new(engine: &StorageEngine, prefix: MetaKey) -> Self {
         Self {
@@ -46,7 +45,7 @@ where K: Into<KeyPart> + FromKey + Clone + Eq + Hash,
             let stripped_key = prefix.strip_prefix(k)
                 .ok_or(err_msg("Invalid prefix key"))?;
             let key = K::from_key(&stripped_key);
-            let value = protobuf::parse_from_bytes(v)?;
+            let value = <V as Persistable>::from_bytes(v)?;
             f(key, value)
         })
     }

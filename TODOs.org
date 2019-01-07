@@ -4,11 +4,6 @@
   
 ** High Priority
 
-  - Document routing
-    - Range based? Allows local splitting, must generate our own ids
-    - Hash based?
-    - Hybrid? Use `id` as a hashable key and store the keys in ranges
-      - probably need to store the id as 128bit or string?
   - Upsert
     - use bloom filter to track if a document exists
     - delete document before indexing if needed

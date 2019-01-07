@@ -1,5 +1,6 @@
 use actix::Arbiter;
 use crate::config::Config;
+use crate::mappings::Mappings;
 use crate::proto::*;
 use crate::rpc_client::{RpcClient, RpcFuture};
 use futures::{prelude::*, future};
@@ -108,9 +109,10 @@ impl NodeRouter {
         name: String,
         shard_count: u64,
         replica_count: u64,
+        mappings: Mappings,
     ) -> impl RpcFuture<()> {
         self.with_leader_client(move |client| {
-            client.create_index(&name, shard_count, replica_count)
+            client.create_index(&name, shard_count, replica_count, mappings)
         })
     }
 
@@ -142,13 +144,14 @@ impl NodeRouter {
         &self,
         index_name: String,
         document_id: u64,
+        payload: serde_json::Value,
     ) -> impl RpcFuture<()> {
         // TODO: should get handle, not clone
         let peers = self.peers.clone();
         self.get_shard_for_document(&index_name, document_id).and_then(move |shard| {
             let replica_id = shard.replicas.first().unwrap().id;
             let client = peers.read().unwrap().get(&replica_id).cloned().unwrap();
-            client.index_document(&index_name, shard.id)
+            client.index_document(&index_name, shard.id, payload)
         })
     }
 

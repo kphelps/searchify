@@ -79,6 +79,7 @@ fn get_raft_groups(engine: &StorageEngine) -> Result<Vec<RaftGroupMetaState>, Er
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::mappings::Mappings;
     use crate::rpc_client::RpcClient;
     use futures::prelude::*;
     use log::error;
@@ -174,10 +175,10 @@ mod test {
         let client = rpc_client(&config);
         let _ = run_in_system(&mut system, client.heartbeat());
         let index_name = "hello-world";
-        let f = client.create_index(index_name);
+        let f = client.create_index(index_name, 2, 3, Mappings::default());
         let _ = run_in_system(&mut system, f).unwrap();
 
-        let f = client.show_index(index_name);
+        let f = client.get_index(index_name);
         let response = run_in_system(&mut system, f).unwrap();
         assert_eq!(response.shard_count, 2);
         assert_eq!(response.replica_count, 3);
@@ -194,10 +195,10 @@ mod test {
         let mut system = build_system(&config).unwrap();
         let client = rpc_client(&config);
         let index_name = "hello-world";
-        let f = client.create_index(index_name);
+        let f = client.create_index(index_name, 2, 3, Mappings::default());
         let _ = run_in_system(&mut system, f).unwrap();
 
-        let f = client.show_index(index_name);
+        let f = client.get_index(index_name);
         let response = run_in_system(&mut system, f).unwrap();
         assert_eq!(response.shard_count, 2);
         assert_eq!(response.replica_count, 3);

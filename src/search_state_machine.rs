@@ -1,3 +1,4 @@
+use crate::mappings::Mappings;
 use crate::proto::*;
 use crate::raft::{
     FutureStateMachineObserver,
@@ -8,10 +9,10 @@ use crate::search_storage::SearchStorage;
 use failure::Error;
 use futures::sync::oneshot::Sender;
 use std::path::Path;
-use tantivy::Document;
 
 pub struct SearchStateMachine {
-    storage: SearchStorage
+    storage: SearchStorage,
+    mappings: Mappings,
 }
 
 type SimpleObserver<T, F> = FutureStateMachineObserver<T, F>;
@@ -20,34 +21,44 @@ type SimplePropose<T, F> = RaftPropose<SimpleObserver<T, F>, SearchStateMachine>
 impl RaftStateMachine for SearchStateMachine {
     type EntryType = SearchEntry;
 
-    fn apply(&mut self, entry: SearchEntry) {
+    fn apply(&mut self, entry: SearchEntry) -> Result<(), Error> {
         if entry.operation.is_none() {
-            return
+            return Ok(())
         }
         match entry.operation.unwrap() {
-            SearchEntry_oneof_operation::add_document(operation) => { self.add_document(operation); },
+            SearchEntry_oneof_operation::add_document(operation) => self.add_document(operation),
         }
     }
 }
 
 impl SearchStateMachine {
 
-    pub fn new(path: impl AsRef<Path>) -> Result<Self, Error> {
-        Ok(Self{
-            storage: SearchStorage::new(path)?,
+    pub fn new(
+        path: impl AsRef<Path>,
+        mappings: Mappings,
+    ) -> Result<Self, Error> {
+        let storage = SearchStorage::new(
+            path,
+            mappings.schema()?,
+        )?;
+        Ok(Self {
+            storage,
+            mappings,
         })
     }
 
     fn add_document(&mut self, request: AddDocumentOperation) -> Result<(), Error> {
-        let document = Document::new();
-        self.storage.index(document)
+        let document: serde_json::Value = serde_json::from_str(request.get_payload())?;
+        let mapped_doc = self.mappings.map_to_document(&document)?;
+        self.storage.index(mapped_doc)
     }
 
-    pub fn propose_add_document(request: IndexDocumentRequest, sender: Sender<IndexDocumentResponse>)
+    pub fn propose_add_document(mut request: IndexDocumentRequest, sender: Sender<IndexDocumentResponse>)
         -> SimplePropose<IndexDocumentResponse, impl FnOnce(&Self) -> IndexDocumentResponse>
     {
         let mut entry = SearchEntry::new();
-        let operation = AddDocumentOperation::new();
+        let mut operation = AddDocumentOperation::new();
+        operation.set_payload(request.take_payload());
         entry.set_add_document(operation);
         let observer = SimpleObserver::new(
             sender,

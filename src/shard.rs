@@ -1,6 +1,7 @@
 use actix::prelude::*;
 use crate::cached_persistent_cell::CachedPersistentCell;
 use crate::keys::{KeySpace, MetaKey};
+use crate::mappings::Mappings;
 use crate::network::NetworkActor;
 use crate::node_router::NodeRouterHandle;
 use crate::raft::RaftClient;
@@ -9,9 +10,7 @@ use crate::search_state_machine::SearchStateMachine;
 use crate::storage_engine::StorageEngine;
 use crate::proto::*;
 use failure::{Error, format_err};
-use std::collections::HashMap;
 use std::path::Path;
-use tantivy::Document;
 
 type RaftStateCell = CachedPersistentCell<RaftGroupMetaState>;
 type StateCell = CachedPersistentCell<ShardState>;
@@ -47,10 +46,11 @@ impl Shard {
         let group_state = raft_state.get().ok_or(format_err!("Shard does not exist: {}", id))?;
 
         let state = new_state_cell(raft_storage_engine, id)?;
-        state.get().ok_or(format_err!("Shard does not exist: {}", id))?;
+        let shard_state = state.get().ok_or(format_err!("Shard does not exist: {}", id))?;
 
         let storage_path = Path::new(storage_root).join(id.to_string());
-        let state_machine = SearchStateMachine::new(storage_path)?;
+        let mappings = serde_json::from_str(shard_state.get_mappings())?;
+        let state_machine = SearchStateMachine::new(storage_path, mappings)?;
 
         let raft_storage = RaftStorage::new(group_state.clone(), raft_storage_engine.clone())?;
         let raft = RaftClient::new(

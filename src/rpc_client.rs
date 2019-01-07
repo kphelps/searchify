@@ -1,3 +1,4 @@
+use crate::mappings::Mappings;
 use crate::proto::*;
 use failure::Error;
 use futures::prelude::*;
@@ -78,11 +79,13 @@ impl RpcClient {
         name: &str,
         shard_count: u64,
         replica_count: u64,
+        mappings: Mappings,
     ) -> impl RpcFuture<()> {
         let mut request = CreateIndexRequest::new();
         request.set_name(name.to_string());
         request.set_shard_count(shard_count);
         request.set_replica_count(replica_count);
+        request.set_mappings(serde_json::to_string(&mappings).unwrap());
         futurize_unit(self.client.create_index_async_opt(&request, self.options()))
     }
 
@@ -126,9 +129,15 @@ impl RpcClient {
         futurize_unit(self.client.heartbeat_async_opt(&request, self.options()))
     }
 
-    pub fn index_document(&self, index_name: &str, shard_id: u64) -> impl RpcFuture<()> {
+    pub fn index_document(
+        &self,
+        index_name: &str,
+        shard_id: u64,
+        payload: serde_json::Value,
+    ) -> impl RpcFuture<()> {
         let mut request = IndexDocumentRequest::new();
         request.shard_id = shard_id;
+        request.payload = serde_json::to_string(&payload).unwrap();
         futurize_unit(self.client.index_document_async_opt(&request, self.options()))
     }
 

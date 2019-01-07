@@ -91,6 +91,7 @@ message SearchEntry {
 }
 
 message AddDocumentOperation {
+  string payload = 1;
 }
 
 message EntryContext {
@@ -99,12 +100,10 @@ message EntryContext {
 
 message CreateIndexRequest {
   string name = 1;
-  IndexSchema schema = 2;
+  // mappings are JSON encoded
+  string mappings = 2;
   uint64 shard_count = 3;
   uint64 replica_count = 4;
-}
-
-message IndexSchema {
 }
 
 message CreateIndexResponse {
@@ -117,6 +116,7 @@ message DeleteIndexRequest {
 
 message GetIndexRequest {
   string name = 1;
+  uint64 id = 2;
 }
 
 message ListIndicesRequest {
@@ -139,6 +139,7 @@ message IndexState {
   uint64 replica_count = 4;
   string name = 5;
   repeated ShardState shards = 6;
+  string mappings = 7;
 }
 
 enum ShardStatus {
@@ -152,6 +153,7 @@ message ShardState {
   ShardStatus status = 3;
   repeated Peer replicas = 4;
   IdRange range = 5;
+  string mappings = 6;
 }
 
 message IdRange {
@@ -206,6 +208,7 @@ message SequenceState {
 
 message IndexDocumentRequest {
   uint64 shard_id = 1;
+  string payload = 2;
 }
 
 message IndexDocumentResponse {
