@@ -213,3 +213,30 @@ message IndexDocumentRequest {
 
 message IndexDocumentResponse {
 }
+
+message SearchRequest {
+  SearchQuery query = 1;
+}
+
+message SearchQuery {
+  BoolQuery bool = 1;
+  TermQuery term = 2;
+}
+
+message BoolQuery {
+  repeated SearchQuery must = 1;
+  repeated SearchQuery must_not = 2;
+  repeated SearchQuery should = 3;
+  repeated SearchQuery filter = 4;
+}
+
+message QueryValue {
+  oneof value {
+    string string = 1;
+  }
+}
+
+message TermQuery {
+  string field_name = 1;
+  QueryValue value = 2;
+}

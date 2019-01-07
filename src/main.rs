@@ -28,6 +28,7 @@ mod node_router;
 mod persistent_cell;
 mod persistent_map;
 mod proto;
+mod query_api;
 mod raft;
 mod raft_storage;
 mod rpc_client;

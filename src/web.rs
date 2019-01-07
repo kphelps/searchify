@@ -13,6 +13,7 @@ use actix_web::{
 use crate::config::Config;
 use crate::mappings::Mappings;
 use crate::node_router::NodeRouterHandle;
+use crate::query_api::*;
 use failure::Error;
 use futures::{prelude::*, future};
 use log::info;
@@ -120,6 +121,23 @@ fn index_document((ctx, payload, path): (State<RequestContext>, Json<Value>, Pat
         .map(|_| Json(IndexDocumentResponse{}))
 }
 
+#[derive(Deserialize)]
+struct SearchRequest {
+    query: SearchQuery,
+}
+
+#[derive(Serialize)]
+struct SearchResponse {
+}
+
+fn search_index((ctx, payload, path): (State<RequestContext>, Json<SearchRequest>, Path<IndexPath>))
+    -> impl JsonFuture<SearchResponse>
+{
+    info!("query: {:?}", payload.query);
+    // ctx.node_router.search(path.name.clone(), )
+    future::ok(Json(SearchResponse{}))
+}
+
 pub fn start_web(
     config: &Config,
     node_router: NodeRouterHandle,
@@ -129,6 +147,9 @@ pub fn start_web(
         .resource("/{name}", |r| {
             r.post().with_async(create_index);
             r.delete().a(delete_index);
+        })
+        .resource("/{name}/_search", |r| {
+            r.post().with_async(search_index);
         })
         .resource("/{name}/_doc/{document_id}", |r| {
             r.post().with_async(index_document);
