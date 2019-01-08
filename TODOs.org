@@ -4,13 +4,11 @@
   
 ** High Priority
 
-  - Get onto stable, nightly sucks
   - Search should respond with source
   - Gossip infrastructure
     - Cache shard routing table
     - Broadcast member list
   - Better RPC error information - hard to tell what is causing the errors
-  - Setup clippy, rustfmt
 
 ** Everything else
    
