@@ -1,10 +1,3 @@
-#![feature(async_await)]
-#![feature(await_macro)]
-#![feature(futures_api)]
-#![feature(pin)]
-#![feature(proc_macro_hygiene)]
-#![feature(arbitrary_self_types)]
-
 #![feature(trait_alias)]
 
 use clap::{Arg, App};

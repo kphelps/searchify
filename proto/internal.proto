@@ -222,4 +222,11 @@ message SearchRequest {
 }
 
 message SearchResponse {
+  repeated SearchHit hits = 1;
+  uint64 total = 2;
+}
+
+message SearchHit {
+  uint64 id = 1;
+  bytes source = 2;
 }

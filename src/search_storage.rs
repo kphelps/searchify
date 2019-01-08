@@ -1,6 +1,6 @@
 use crate::mappings::{MappedDocument, Mappings};
 use crate::proto::{SearchRequest, SearchResponse};
-use crate::query_api::SearchQuery;
+use crate::query_api::{SearchQuery, ToQuery};
 use failure::Error;
 use log::*;
 use std::fs::DirBuilder;
@@ -8,7 +8,7 @@ use std::path::Path;
 use tantivy::{
     Index,
     IndexWriter,
-    collector::TopDocs,
+    collector::{Count, TopDocs},
     directory::MmapDirectory,
     schema::*,
 };
@@ -54,11 +54,14 @@ impl SearchStorage {
     pub fn search(&self, request: SearchRequest) -> Result<SearchResponse, Error> {
         let query: SearchQuery = serde_json::from_slice(&request.query)?;
         let limit = if request.limit == 0 { 10 } else { request.limit };
-        let collector = TopDocs::with_limit(request.limit);
+        let docs_collector = TopDocs::with_limit(limit as usize);
+        let collector = (Count, docs_collector);
         info!("[shard-{}] Request: {:?}", self.shard_id, query);
         let searcher = self.index.searcher();
-        searcher.search(query.to_query(&searcher)?)?;
+        let result = searcher.search(&query.to_query(&self.schema, &searcher)?, &collector)?;
         let mut response = SearchResponse::new();
+        response.set_total(result.0 as u64);
+        info!("[shard-{}] Response: {:?}", self.shard_id, response);
         Ok(response)
     }
 }

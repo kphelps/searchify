@@ -26,7 +26,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
-use tokio_async_await::compat::backward::Compat;
 
 struct RaftState<T> {
     state_machine: T,
@@ -150,8 +149,8 @@ impl<T> RaftClient<T>
         })
     }
 
-    fn raft_tick(&self) -> impl Future<Item=(), Error=Error> {
-        Compat::new(RaftState::raft_tick(self.state.clone()))
+    fn raft_tick(&self) -> Result<(), Error> {
+        self.state.borrow_mut().raft_tick()
     }
 
     fn raft_propose_entry<O>(&self, m: RaftPropose<O, T>) -> Result<(), Error>
@@ -208,29 +207,28 @@ impl<T> RaftState<T>
         })
     }
 
-    async fn raft_tick(locked: Rc<RefCell<Self>>) -> Result<(), Error> {
-        let mut state = locked.borrow_mut();
-        state.raft_node.tick();
-        if !state.raft_node.has_ready() {
+    fn raft_tick(&mut self) -> Result<(), Error> {
+        self.raft_node.tick();
+        if !self.raft_node.has_ready() {
             return Ok(());
         }
 
-        let mut ready = state.raft_node.ready();
-        if state.is_leader() {
-            state.send_messages(&mut ready);
+        let mut ready = self.raft_node.ready();
+        if self.is_leader() {
+            self.send_messages(&mut ready);
         }
-        let mut batch = state.raft_node.mut_store().batch();
-        state.apply_snapshot(&ready)?;
-        state.append_entries(&ready, &mut batch)?;
-        state.apply_hardstate(&ready, &mut batch)?;
-        if !state.is_leader() {
-            state.send_messages(&mut ready);
+        let mut batch = self.raft_node.mut_store().batch();
+        self.apply_snapshot(&ready)?;
+        self.append_entries(&ready, &mut batch)?;
+        self.apply_hardstate(&ready, &mut batch)?;
+        if !self.is_leader() {
+            self.send_messages(&mut ready);
         }
-        state.apply_committed_entries(&ready, &mut batch)?;
+        self.apply_committed_entries(&ready, &mut batch)?;
         batch.commit()?;
-        state.advance_raft(ready);
-        let _ = state.compact();
-        state.update_leader_id();
+        self.advance_raft(ready);
+        let _ = self.compact();
+        self.update_leader_id();
         Ok(())
     }
 
@@ -407,18 +405,12 @@ impl<T> Handler<TickMessage> for RaftClient<T>
     where T: RaftStateMachine + 'static,
           NetworkActor: Handler<RaftGroupStarted<T>>
 {
-    type Result = ResponseActFuture<Self, (), Error>;
+    type Result = Result<(), Error>;
 
-    fn handle(&mut self, _: TickMessage, _: &mut Context<Self>) -> Self::Result {
-        let f = self.raft_tick()
-            .into_actor(self)
-            .map(|_, actor, ctx| actor.schedule_next_tick(ctx))
-            .map_err(|err, actor, ctx| {
-                error!("Error ticking: {}", err);
-                actor.schedule_next_tick(ctx);
-                err
-            });
-        Box::new(f)
+    fn handle(&mut self, _: TickMessage, ctx: &mut Context<Self>) -> Self::Result {
+        let result = self.raft_tick();
+        self.schedule_next_tick(ctx);
+        result
     }
 }
 
