@@ -1,5 +1,5 @@
-use crate::keys::MetaKey;
 use crate::cached_persistent_cell::CachedPersistentCell;
+use crate::keys::MetaKey;
 use crate::proto::SequenceState;
 use crate::storage_engine::StorageEngine;
 use failure::Error;
@@ -16,7 +16,7 @@ impl IdGenerator {
             state.value = 1;
             storage.set(&state)?;
         }
-        Ok(Self{storage})
+        Ok(Self { storage })
     }
 
     pub fn next(&mut self) -> Result<u64, Error> {

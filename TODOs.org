@@ -4,7 +4,8 @@
   
 ** High Priority
 
-  - Simple search API - term query + booleans only
+  - Get onto stable, nightly sucks
+  - Search should respond with source
   - Gossip infrastructure
     - Cache shard routing table
     - Broadcast member list

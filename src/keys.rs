@@ -1,9 +1,9 @@
-use byteorder::{BigEndian, ByteOrder, WriteBytesExt};
 use crate::proto::*;
+use byteorder::{BigEndian, ByteOrder, WriteBytesExt};
 
 const SEPARATOR: u8 = 0xAA;
 const PREFIX_START: u8 = SEPARATOR;
-const PREFIX_END: u8 = SEPARATOR+1;
+const PREFIX_END: u8 = SEPARATOR + 1;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum KeyPart {
@@ -82,7 +82,7 @@ impl MetaKey {
         if bytes[root.len()] != SEPARATOR {
             return None;
         }
-        Some(bytes[root.len()+1..].to_vec())
+        Some(bytes[root.len() + 1..].to_vec())
     }
 }
 

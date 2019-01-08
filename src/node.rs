@@ -1,21 +1,17 @@
-use actix::prelude::*;
-use actix::SystemRunner;
 use crate::config::Config;
-use crate::web::start_web;
-use crate::network::NetworkActor;
 use crate::key_value_state_machine::KeyValueStateMachine;
+use crate::network::NetworkActor;
 use crate::node_router::NodeRouter;
 use crate::proto::{Peer, RaftGroupMetaState, RaftGroupType};
 use crate::raft::{InitNetwork, RaftClient};
 use crate::raft_storage::{
-    LOCAL_PREFIX,
-    RAFT_GROUP_META_PREFIX,
-    RAFT_GROUP_META_PREFIX_KEY,
-    RaftStorage,
-    init_raft_group,
+    init_raft_group, RaftStorage, LOCAL_PREFIX, RAFT_GROUP_META_PREFIX, RAFT_GROUP_META_PREFIX_KEY,
 };
 use crate::search::IndexCoordinator;
 use crate::storage_engine::StorageEngine;
+use crate::web::start_web;
+use actix::prelude::*;
+use actix::SystemRunner;
 use failure::Error;
 use protobuf::parse_from_bytes;
 use std::path::Path;
@@ -31,10 +27,7 @@ fn build_system(config: &Config) -> Result<SystemRunner, Error> {
     let storage_engine = StorageEngine::new(&storage_root.join("cluster"))?;
     init_node(&config.master_ids, &storage_engine)?;
 
-    let network = NetworkActor::start(
-        config.node_id,
-        config.port,
-    )?;
+    let network = NetworkActor::start(config.node_id, config.port)?;
 
     let node_router = NodeRouter::start(&config)?;
     let group_states = get_raft_groups(&storage_engine)?;
@@ -44,7 +37,8 @@ fn build_system(config: &Config) -> Result<SystemRunner, Error> {
         storage_engine.clone(),
         &group_states,
         &network,
-    )?.start();
+    )?
+    .start();
     let group_state = group_states[0].clone();
     let storage = RaftStorage::new(group_state, storage_engine)?;
     let kv_engine = StorageEngine::new(&storage_root.join("kv"))?;
@@ -55,7 +49,8 @@ fn build_system(config: &Config) -> Result<SystemRunner, Error> {
         kv_state_machine,
         node_router.clone(),
         &network,
-    )?.start();
+    )?
+    .start();
     start_web(config, node_router);
 
     Ok(sys)
@@ -104,29 +99,31 @@ mod test {
     }
 
     fn run_in_system<F, I, E>(system: &mut SystemRunner, f: F) -> Result<I, Error>
-    where F: IntoFuture<Item=I, Error=E>,
-          E: Into<Error>
+    where
+        F: IntoFuture<Item = I, Error = E>,
+        E: Into<Error>,
     {
-        system.block_on(f.into_future())
-            .map_err(|e| {
-                let err = e.into();
-                error!("Error in execution: {:?}", err);
-                err
-            })
+        system.block_on(f.into_future()).map_err(|e| {
+            let err = e.into();
+            error!("Error in execution: {:?}", err);
+            err
+        })
     }
 
     fn run_node<F, I, E>(config: &Config, f: F) -> Result<I, Error>
-    where F: IntoFuture<Item=I, Error=E>,
-          E: Into<Error>
+    where
+        F: IntoFuture<Item = I, Error = E>,
+        E: Into<Error>,
     {
         let mut system = build_system(config)?;
         run_in_system(&mut system, f)
     }
 
     fn run_node_fn<F, N, I, E>(config: &Config, f: F) -> Result<I, Error>
-        where F: FnOnce() -> N,
-              N: IntoFuture<Item=I, Error=E>,
-              E: Into<Error>
+    where
+        F: FnOnce() -> N,
+        N: IntoFuture<Item = I, Error = E>,
+        E: Into<Error>,
     {
         run_node(config, f())
     }
@@ -139,7 +136,7 @@ mod test {
     #[test]
     fn test_set_then_get() {
         let config = config();
-        let mut system  = build_system(&config).unwrap();
+        let mut system = build_system(&config).unwrap();
         let client = rpc_client(&config);
         let key = vec![0];
         let value = vec![0];
@@ -160,7 +157,7 @@ mod test {
         let value = vec![0];
         let f = client.set(&key, &value);
         let _ = run_node(&config, f).unwrap();
-        config.web.port += 1;  // TODO :sigh:
+        config.web.port += 1; // TODO :sigh:
 
         let f = client.get(&key);
         let got = run_node(&config, f).unwrap();
@@ -217,8 +214,7 @@ mod test {
         let f = client.list_nodes();
         let nodes = run_in_system(&mut system, f).unwrap();
         assert_eq!(nodes.len(), 0);
-        let f = client.heartbeat()
-            .and_then(|_| client.list_nodes());
+        let f = client.heartbeat().and_then(|_| client.list_nodes());
         let nodes = run_in_system(&mut system, f).unwrap();
         assert_eq!(nodes.len(), 1);
     }

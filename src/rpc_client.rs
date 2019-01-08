@@ -2,7 +2,7 @@ use crate::mappings::Mappings;
 use crate::proto::*;
 use failure::Error;
 use futures::prelude::*;
-use grpcio::{CallOption, ClientUnaryReceiver, EnvBuilder, ChannelBuilder};
+use grpcio::{CallOption, ChannelBuilder, ClientUnaryReceiver, EnvBuilder};
 use protobuf::Message;
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,25 +13,18 @@ pub struct RpcClient {
     client: InternalClient,
 }
 
-pub trait RpcFuture<T> = Future<Item=T, Error=Error>;
-
-fn futurize<T>(input: Result<ClientUnaryReceiver<T>, grpcio::Error>)
-    -> impl RpcFuture<T>
-{
+fn futurize<T>(input: Result<ClientUnaryReceiver<T>, grpcio::Error>) -> impl Future<Item=T, Error=Error> {
     futures::future::result(input)
         .and_then(|r| r)
         .map_err(|err| err.into())
 }
 
-fn futurize_unit<T>(input: Result<ClientUnaryReceiver<T>, grpcio::Error>)
-    -> impl RpcFuture<()>
-{
+fn futurize_unit<T>(input: Result<ClientUnaryReceiver<T>, grpcio::Error>) -> impl Future<Item=(), Error=Error> {
     futures::future::result(input)
         .and_then(|r| r)
         .map_err(|err| err.into())
         .map(|_| ())
 }
-
 
 impl RpcClient {
     pub fn new(node_id: u64, address: &str) -> Self {
@@ -44,7 +37,7 @@ impl RpcClient {
         }
     }
 
-    pub fn hello(&self) -> impl RpcFuture<HelloResponse> {
+    pub fn hello(&self) -> impl Future<Item=HelloResponse, Error=Error> {
         let mut request = HelloRequest::new();
         request.peer_id = self.node_id;
         futurize(self.client.hello_async_opt(&request, self.options()))
@@ -54,21 +47,21 @@ impl RpcClient {
         &self,
         message: &raft::eraftpb::Message,
         raft_group_id: u64,
-    ) -> impl RpcFuture<()> {
+    ) -> impl Future<Item=(), Error=Error> {
         let mut request = SearchifyRaftMessage::new();
         request.wrapped_message = message.write_to_bytes().unwrap();
         request.raft_group_id = raft_group_id;
         futurize_unit(self.client.raft_message_async_opt(&request, self.options()))
     }
 
-    pub fn set(&self, key: &[u8], value: &[u8]) -> impl RpcFuture<()> {
+    pub fn set(&self, key: &[u8], value: &[u8]) -> impl Future<Item=(), Error=Error> {
         let mut kv = KeyValue::new();
         kv.key = key.to_vec();
         kv.value = value.to_vec();
         futurize_unit(self.client.set_async_opt(&kv, self.options()))
     }
 
-    pub fn get(&self, key: &[u8]) -> impl RpcFuture<KeyValue> {
+    pub fn get(&self, key: &[u8]) -> impl Future<Item=KeyValue, Error=Error> {
         let mut request = Key::new();
         request.key = key.to_vec();
         futurize(self.client.get_async_opt(&request, self.options()))
@@ -80,7 +73,7 @@ impl RpcClient {
         shard_count: u64,
         replica_count: u64,
         mappings: Mappings,
-    ) -> impl RpcFuture<()> {
+    ) -> impl Future<Item=(), Error=Error> {
         let mut request = CreateIndexRequest::new();
         request.set_name(name.to_string());
         request.set_shard_count(shard_count);
@@ -89,24 +82,24 @@ impl RpcClient {
         futurize_unit(self.client.create_index_async_opt(&request, self.options()))
     }
 
-    pub fn delete_index(&self, name: &str) -> impl RpcFuture<()> {
+    pub fn delete_index(&self, name: &str) -> impl Future<Item=(), Error=Error> {
         let mut request = DeleteIndexRequest::new();
         request.set_name(name.to_string());
         futurize_unit(self.client.delete_index_async_opt(&request, self.options()))
     }
 
-    pub fn get_index(&self, name: &str) -> impl RpcFuture<IndexState> {
+    pub fn get_index(&self, name: &str) -> impl Future<Item=IndexState, Error=Error> {
         let mut request = GetIndexRequest::new();
         request.set_name(name.to_string());
         futurize(self.client.get_index_async_opt(&request, self.options()))
     }
 
-    pub fn list_indices(&self) -> impl RpcFuture<ListIndicesResponse> {
+    pub fn list_indices(&self) -> impl Future<Item=ListIndicesResponse, Error=Error> {
         let request = ListIndicesRequest::new();
         futurize(self.client.list_indices_async_opt(&request, self.options()))
     }
 
-    pub fn list_shards(&self, node: u64) -> impl RpcFuture<Vec<ShardState>> {
+    pub fn list_shards(&self, node: u64) -> impl Future<Item=Vec<ShardState>, Error=Error> {
         let mut request = ListShardsRequest::new();
         let mut peer = Peer::new();
         peer.set_id(node);
@@ -115,13 +108,13 @@ impl RpcClient {
             .map(|mut resp| resp.take_shards().into_vec())
     }
 
-    pub fn list_nodes(&self) -> impl RpcFuture<Vec<NodeState>> {
+    pub fn list_nodes(&self) -> impl Future<Item=Vec<NodeState>, Error=Error> {
         let request = ListNodesRequest::new();
         futurize(self.client.list_nodes_async_opt(&request, self.options()))
             .map(|mut resp| resp.take_nodes().into_vec())
     }
 
-    pub fn heartbeat(&self) -> impl RpcFuture<()> {
+    pub fn heartbeat(&self) -> impl Future<Item=(), Error=Error> {
         let mut request = HeartbeatRequest::new();
         let mut peer = Peer::new();
         peer.id = self.node_id;
@@ -134,11 +127,14 @@ impl RpcClient {
         index_name: &str,
         shard_id: u64,
         payload: serde_json::Value,
-    ) -> impl RpcFuture<()> {
+    ) -> impl Future<Item=(), Error=Error> {
         let mut request = IndexDocumentRequest::new();
         request.shard_id = shard_id;
         request.payload = serde_json::to_string(&payload).unwrap();
-        futurize_unit(self.client.index_document_async_opt(&request, self.options()))
+        futurize_unit(
+            self.client
+                .index_document_async_opt(&request, self.options()),
+        )
     }
 
     pub fn search(
@@ -146,7 +142,7 @@ impl RpcClient {
         index_name: &str,
         shard_id: u64,
         payload: Vec<u8>,
-    ) -> impl RpcFuture<SearchResponse> {
+    ) -> impl Future<Item=SearchResponse, Error=Error> {
         let mut request = SearchRequest::new();
         request.set_shard_id(shard_id);
         request.set_query(payload);

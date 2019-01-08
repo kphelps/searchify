@@ -1,9 +1,5 @@
 use crate::keys::MetaKey;
-use crate::storage_engine::{
-    MessageWriteBatch,
-    Persistable,
-    StorageEngine,
-};
+use crate::storage_engine::{MessageWriteBatch, Persistable, StorageEngine};
 use failure::Error;
 use std::marker::PhantomData;
 
@@ -14,7 +10,8 @@ pub struct PersistentCell<T> {
 }
 
 impl<T> PersistentCell<T>
-    where T: Persistable + Clone
+where
+    T: Persistable + Clone,
 {
     pub fn new(engine: &StorageEngine, key: MetaKey) -> Self {
         Self {

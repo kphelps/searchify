@@ -1,19 +1,18 @@
-#![feature(trait_alias)]
-
-use clap::{Arg, App};
+use clap::{App, Arg};
 use failure::Error;
 use log::error;
 
-#[macro_use] mod storage_engine;
+#[macro_use]
+mod storage_engine;
 
 mod cached_persistent_cell;
 mod cached_persistent_map;
 mod config;
+mod id_generator;
+mod index_tracker;
 mod key_value_state_machine;
 mod keys;
-mod id_generator;
 mod kv_index;
-mod index_tracker;
 mod mappings;
 mod network;
 mod node;
@@ -25,15 +24,18 @@ mod query_api;
 mod raft;
 mod raft_storage;
 mod rpc_client;
-mod shard;
 mod search;
 mod search_state_machine;
 mod search_storage;
+mod shard;
 mod shard_tracker;
 mod web;
 
 fn main() {
-    std::env::set_var("RUST_LOG", "searchify=info,actix_web=info,raft=info,tantivy=warn");
+    std::env::set_var(
+        "RUST_LOG",
+        "searchify=info,actix_web=info,raft=info,tantivy=warn",
+    );
     env_logger::init();
     if let Err(err) = start() {
         error!("Failure: {}", err);
@@ -50,7 +52,7 @@ fn start() -> Result<(), Error> {
                 .short("c")
                 .value_name("PATH")
                 .default_value("./searchify")
-                .help("path to configuration file")
+                .help("path to configuration file"),
         )
         .get_matches();
 

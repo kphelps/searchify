@@ -1,14 +1,14 @@
-use actix::prelude::*;
 use crate::config::Config;
-use crate::proto::*;
 use crate::network::NetworkActor;
 use crate::node_router::NodeRouterHandle;
+use crate::proto::*;
 use crate::raft_storage::init_raft_group;
 use crate::shard::Shard;
 use crate::storage_engine::StorageEngine;
+use actix::prelude::*;
 use failure::Error;
-use log::*;
 use futures::prelude::*;
+use log::*;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -17,7 +17,7 @@ pub struct IndexCoordinator {
     node_router: NodeRouterHandle,
     raft_storage_engine: StorageEngine,
     shards: HashMap<u64, Shard>,
-    network: Addr<NetworkActor>
+    network: Addr<NetworkActor>,
 }
 
 impl Actor for IndexCoordinator {
@@ -34,7 +34,7 @@ impl IndexCoordinator {
         node_router: NodeRouterHandle,
         raft_storage_engine: StorageEngine,
         raft_group_states: &Vec<RaftGroupMetaState>,
-        network: &Addr<NetworkActor>
+        network: &Addr<NetworkActor>,
     ) -> Result<Self, Error> {
         let mut coordinator = Self {
             config: config.clone(),
@@ -44,11 +44,14 @@ impl IndexCoordinator {
             network: network.clone(),
         };
 
-        raft_group_states.iter()
-            .map(|state| if state.group_type == RaftGroupType::RAFT_GROUP_SEARCH {
-                coordinator.initialize_shard_from_disk(state)
-            } else {
-                Ok(())
+        raft_group_states
+            .iter()
+            .map(|state| {
+                if state.group_type == RaftGroupType::RAFT_GROUP_SEARCH {
+                    coordinator.initialize_shard_from_disk(state)
+                } else {
+                    Ok(())
+                }
             })
             .collect::<Result<(), Error>>()?;
 
@@ -56,7 +59,9 @@ impl IndexCoordinator {
     }
 
     fn poll_node_info(&mut self, ctx: &mut Context<Self>) {
-        let f = self.node_router.list_shards(self.config.node_id)
+        let f = self
+            .node_router
+            .list_shards(self.config.node_id)
             .into_actor(self)
             .map(|shards, this, ctx| {
                 shards.iter().for_each(|shard| {

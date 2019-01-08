@@ -1,4 +1,4 @@
-use config::{ConfigError, Config as ConfigBuilder, File, Environment};
+use config::{Config as ConfigBuilder, ConfigError, Environment, File};
 use serde_derive::Deserialize;
 use std::path::Path;
 
@@ -45,7 +45,12 @@ impl Config {
     }
 
     pub fn search_storage_root(&self) -> String {
-        self.search_storage_root.clone()
-            .unwrap_or_else(|| Path::new(&self.storage_root).join("search").to_str().unwrap().to_string())
+        self.search_storage_root.clone().unwrap_or_else(|| {
+            Path::new(&self.storage_root)
+                .join("search")
+                .to_str()
+                .unwrap()
+                .to_string()
+        })
     }
 }

@@ -1,32 +1,15 @@
 // TODO: This module should take advantage of the rocksdb abstractions
 
-use byteorder::{BigEndian, ByteOrder};
-use crate::proto::{
-    ApplyState,
-    Peer,
-    RaftGroupMetaState,
-    RaftGroupType,
-    RaftLocalState,
-};
+use crate::proto::{ApplyState, Peer, RaftGroupMetaState, RaftGroupType, RaftLocalState};
 use crate::storage_engine::{MessageWriteBatch, StorageEngine};
-use log::info;
+use byteorder::{BigEndian, ByteOrder};
 use failure::Error;
+use log::info;
 use protobuf::Message;
 use raft::{
-    Error as RaftError,
-    Result as RaftResult,
-    NO_LIMIT,
-    StorageError,
-    eraftpb::{
-        ConfState,
-        Entry,
-        HardState,
-        Snapshot,
-    },
-    storage:: {
-        RaftState,
-        Storage,
-    },
+    eraftpb::{ConfState, Entry, HardState, Snapshot},
+    storage::{RaftState, Storage},
+    Error as RaftError, Result as RaftResult, StorageError, NO_LIMIT,
 };
 
 pub struct RaftStorage {
@@ -36,7 +19,6 @@ pub struct RaftStorage {
     apply_state: ApplyState,
     last_term: u64,
 }
-
 
 pub const LOCAL_PREFIX: u8 = 0x01;
 
@@ -76,10 +58,7 @@ pub fn init_raft_group(
 }
 
 impl RaftStorage {
-    pub fn new(
-        raft_group: RaftGroupMetaState,
-        engine: StorageEngine,
-    ) -> Result<Self, Error> {
+    pub fn new(raft_group: RaftGroupMetaState, engine: StorageEngine) -> Result<Self, Error> {
         let mut storage = Self {
             raft_group,
             engine,
@@ -202,11 +181,11 @@ impl RaftStorage {
         Ok(())
     }
 
-    fn local_state_key(&self) -> [u8; 11]  {
+    fn local_state_key(&self) -> [u8; 11] {
         self.raft_group_prefix(LOCAL_STATE_SUFFIX)
     }
 
-    fn apply_state_key(&self) -> [u8; 11]  {
+    fn apply_state_key(&self) -> [u8; 11] {
         self.raft_group_prefix(APPLY_STATE_SUFFIX)
     }
 
@@ -254,16 +233,17 @@ impl RaftStorage {
         let start_key = self.raft_log_key(low);
         let end_key = self.raft_log_key(high);
         let mut buf_size = 0;
-        self.engine.scan(start_key.as_ref(), end_key.as_ref(), |_, value| {
-            let mut entry = Entry::new();
-            entry.merge_from_bytes(value)?;
-            buf_size += value.len() as u64;
-            let exceeded_max_size = buf_size > max_size;
-            if !exceeded_max_size || out.is_empty() {
-                out.push(entry);
-            }
-            Ok(buf_size < max_size)
-        })?;
+        self.engine
+            .scan(start_key.as_ref(), end_key.as_ref(), |_, value| {
+                let mut entry = Entry::new();
+                entry.merge_from_bytes(value)?;
+                buf_size += value.len() as u64;
+                let exceeded_max_size = buf_size > max_size;
+                if !exceeded_max_size || out.is_empty() {
+                    out.push(entry);
+                }
+                Ok(buf_size < max_size)
+            })?;
         Ok(out)
     }
 }
@@ -271,9 +251,10 @@ impl RaftStorage {
 impl Storage for RaftStorage {
     fn initial_state(&self) -> RaftResult<RaftState> {
         let mut conf_state = ConfState::default();
-        self.raft_group.peers.iter().for_each(|p| {
-            conf_state.mut_nodes().push(p.id)
-        });
+        self.raft_group
+            .peers
+            .iter()
+            .for_each(|p| conf_state.mut_nodes().push(p.id));
         Ok(RaftState {
             conf_state: conf_state,
             hard_state: self.hard_state(),
@@ -287,14 +268,14 @@ impl Storage for RaftStorage {
 
     fn term(&self, index: u64) -> RaftResult<u64> {
         if index == self.apply_state.truncated_index {
-            return Ok(self.apply_state.truncated_term)
+            return Ok(self.apply_state.truncated_term);
         }
         if index == self.last_index()? {
-            return Ok(self.last_term)
+            return Ok(self.last_term);
         }
         let result = self.entries(index, index + 1, NO_LIMIT);
         if let Err(_) = result {
-            return Err(RaftError::Store(StorageError::Unavailable))
+            return Err(RaftError::Store(StorageError::Unavailable));
         }
 
         let term = result.unwrap()[0].term;

@@ -9,7 +9,8 @@ pub struct CachedPersistentCell<T> {
 }
 
 impl<T> CachedPersistentCell<T>
-where T: Persistable + Clone
+where
+    T: Persistable + Clone,
 {
     pub fn new(engine: &StorageEngine, key: MetaKey) -> Result<Self, Error> {
         let mut cell = Self {
@@ -30,7 +31,7 @@ where T: Persistable + Clone
         self.cache.as_ref()
     }
 
-    pub fn delete(&mut  self) -> Result<(), Error> {
+    pub fn delete(&mut self) -> Result<(), Error> {
         self.storage.delete()?;
         self.cache = None;
         Ok(())

@@ -1,10 +1,10 @@
-use crate::keys::{self, KeySpace};
 use crate::cached_persistent_map::CachedPersistentMap;
 use crate::id_generator::IdGenerator;
+use crate::keys::{self, KeySpace};
+use crate::kv_index::KvIndex;
 use crate::proto::ShardState;
 use crate::storage_engine::StorageEngine;
-use crate::kv_index::KvIndex;
-use failure::{Error, err_msg};
+use failure::{err_msg, Error};
 use std::collections::HashSet;
 
 pub struct ShardTracker {
@@ -16,7 +16,6 @@ pub struct ShardTracker {
 }
 
 impl ShardTracker {
-
     pub fn new(storage: &StorageEngine) -> Result<Self, Error> {
         let shards = CachedPersistentMap::new(storage, KeySpace::Shard.as_key())?;
         let id_generator = IdGenerator::new(storage, keys::id_key(KeySpace::Shard))?;
@@ -49,7 +48,8 @@ impl ShardTracker {
 
     pub fn delete_shards_for_index(&mut self, index_id: u64) -> Result<(), Error> {
         let shards = self.by_index.get(&index_id, &self.shards);
-        shards.iter()
+        shards
+            .iter()
             .map(|shard| self.delete_shard(shard))
             .collect::<Result<(), Error>>()?;
         Ok(())
@@ -68,13 +68,21 @@ impl ShardTracker {
     }
 
     fn update_indices_for_shard(&mut self, shard: &ShardState) {
-        let node_ids = shard.get_replicas().iter().map(|node| node.get_id()).collect();
+        let node_ids = shard
+            .get_replicas()
+            .iter()
+            .map(|node| node.get_id())
+            .collect();
         self.by_node.bulk_insert(shard.get_id(), node_ids);
         self.by_index.insert(shard.get_id(), shard.get_index_id());
     }
 
     fn update_indices_for_deleted_shard(&mut self, shard: &ShardState) {
-        let node_ids = shard.get_replicas().iter().map(|node| node.get_id()).collect();
+        let node_ids = shard
+            .get_replicas()
+            .iter()
+            .map(|node| node.get_id())
+            .collect();
         self.by_node.bulk_remove(shard.get_id(), node_ids);
         self.by_index.remove(shard.get_id(), shard.get_index_id());
     }

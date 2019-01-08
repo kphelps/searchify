@@ -1,16 +1,11 @@
-use failure::{Error, format_err};
+use failure::{format_err, Error};
 use log::*;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use tantivy::{
+    schema::{Schema, SchemaBuilder, FAST, STRING},
     Document,
-    schema::{
-        FAST,
-        Schema,
-        SchemaBuilder,
-        STRING,
-    },
 };
 
 // How do we represent raw documents (from the API)
@@ -68,15 +63,19 @@ impl Mappings {
     }
 
     pub fn accept<V>(&self, visitor: &mut V) -> Result<(), Error>
-        where V: MappingVisitor
+    where
+        V: MappingVisitor,
     {
-        self.properties.iter().map(|(field_name, field_value)| {
-            if visitor.enter_scope(field_name)? {
-                field_value.accept(visitor)?;
-                visitor.leave_scope();
-            }
-            Ok(())
-        }).collect::<Result<(), Error>>()
+        self.properties
+            .iter()
+            .map(|(field_name, field_value)| {
+                if visitor.enter_scope(field_name)? {
+                    field_value.accept(visitor)?;
+                    visitor.leave_scope();
+                }
+                Ok(())
+            })
+            .collect::<Result<(), Error>>()
     }
 
     pub fn schema(&self) -> Result<Schema, Error> {
@@ -106,26 +105,29 @@ pub trait MappingVisitor {
 
     fn visit_long(&mut self) -> Result<(), Error>;
     fn visit_keyword(&mut self) -> Result<(), Error>;
-    fn visit_object(&mut self, properties: &HashMap<String, MappingField>)
-        -> Result<(), Error>;
+    fn visit_object(&mut self, properties: &HashMap<String, MappingField>) -> Result<(), Error>;
 }
 
 impl MappingField {
     fn accept<V>(&self, visitor: &mut V) -> Result<(), Error>
-    where V: MappingVisitor
+    where
+        V: MappingVisitor,
     {
         match self {
             MappingField::Keyword => visitor.visit_keyword(),
             MappingField::Long => visitor.visit_long(),
-            MappingField::Object{properties} => {
+            MappingField::Object { properties } => {
                 visitor.visit_object(properties)?;
-                properties.iter().map(|(key, value)| {
-                    if visitor.enter_scope(key)? {
-                        value.accept(visitor)?;
-                        visitor.leave_scope();
-                    }
-                    Ok(())
-                }).collect::<Result<(), Error>>()
+                properties
+                    .iter()
+                    .map(|(key, value)| {
+                        if visitor.enter_scope(key)? {
+                            value.accept(visitor)?;
+                            visitor.leave_scope();
+                        }
+                        Ok(())
+                    })
+                    .collect::<Result<(), Error>>()
             }
         }
     }
@@ -163,7 +165,8 @@ impl DocumentMappingVisitor {
 
 impl MappingVisitor for DocumentMappingVisitor {
     fn enter_scope(&mut self, name: &str) -> Result<bool, Error> {
-        let properties = self.current_value()
+        let properties = self
+            .current_value()
             .as_object()
             .ok_or(format_err!("Invalid object: {}", self.value))?;
         let maybe_value = properties.get(name);
@@ -182,14 +185,21 @@ impl MappingVisitor for DocumentMappingVisitor {
     }
 
     fn visit_keyword(&mut self) -> Result<(), Error> {
-        let keyword = self.current_value().as_str().map(str::to_string).map(MappedField::Keyword)
+        let keyword = self
+            .current_value()
+            .as_str()
+            .map(str::to_string)
+            .map(MappedField::Keyword)
             .ok_or(format_err!("Invalid keyword: '{}'", self.value))?;
         self.finalize_field(keyword);
         Ok(())
     }
 
     fn visit_long(&mut self) -> Result<(), Error> {
-        let long = self.current_value().as_i64().map(MappedField::Long)
+        let long = self
+            .current_value()
+            .as_i64()
+            .map(MappedField::Long)
             .ok_or(format_err!("Invalid long: {}", self.value))?;
         self.finalize_field(long);
         Ok(())
@@ -269,14 +279,20 @@ mod test {
     fn test_mapping() {
         let mappings = new_mappings();
         assert_eq!(mappings.properties.len(), 3);
-        assert_eq!(*mappings.properties.get("hello").unwrap(), MappingField::Keyword{});
-        assert_eq!(*mappings.properties.get("world").unwrap(), MappingField::Long{});
+        assert_eq!(
+            *mappings.properties.get("hello").unwrap(),
+            MappingField::Keyword {}
+        );
+        assert_eq!(
+            *mappings.properties.get("world").unwrap(),
+            MappingField::Long {}
+        );
         let mut obj = HashMap::new();
-        let field = MappingField::Keyword{};
+        let field = MappingField::Keyword {};
         obj.insert("field".to_string(), field);
         assert_eq!(
             *mappings.properties.get("object").unwrap(),
-            MappingField::Object{properties: obj},
+            MappingField::Object { properties: obj },
         );
 
         let raw_doc_data = r#"
@@ -290,12 +306,16 @@ mod test {
         let raw_doc: Value = serde_json::from_str(raw_doc_data).unwrap();
         let mapped_doc = mappings.map_to_document(&raw_doc).unwrap();
         let mut fields = HashMap::new();
-        fields.insert("hello".to_string(), MappedField::Keyword("world".to_string()));
+        fields.insert(
+            "hello".to_string(),
+            MappedField::Keyword("world".to_string()),
+        );
         fields.insert("world".to_string(), MappedField::Long(1));
-        fields.insert("object.field".to_string(), MappedField::Keyword("works".to_string()));
-        let expected = MappedDocument {
-            fields: fields,
-        };
+        fields.insert(
+            "object.field".to_string(),
+            MappedField::Keyword("works".to_string()),
+        );
+        let expected = MappedDocument { fields: fields };
         assert_eq!(mapped_doc, expected);
     }
 

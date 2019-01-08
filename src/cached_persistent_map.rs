@@ -12,8 +12,9 @@ pub struct CachedPersistentMap<K, V> {
 }
 
 impl<K, V> CachedPersistentMap<K, V>
-where K: Into<KeyPart> + FromKey + Clone + Eq + Hash,
-      V: Persistable + Clone
+where
+    K: Into<KeyPart> + FromKey + Clone + Eq + Hash,
+    V: Persistable + Clone,
 {
     pub fn new(engine: &StorageEngine, prefix: MetaKey) -> Result<Self, Error> {
         let mut map = Self {
@@ -51,8 +52,9 @@ where K: Into<KeyPart> + FromKey + Clone + Eq + Hash,
 }
 
 impl<K, V> Keyable<K> for CachedPersistentMap<K, V>
-    where K: Eq + Hash,
-        V: Clone
+where
+    K: Eq + Hash,
+    V: Clone,
 {
     type Value = V;
 

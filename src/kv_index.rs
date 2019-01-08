@@ -1,6 +1,6 @@
 use failure::{Error, Fail};
-use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
 #[derive(Debug, Fail)]
@@ -24,7 +24,8 @@ pub struct UniqueKvIndex<K> {
 }
 
 impl<K> KvIndex<K>
-    where K: Eq + Hash
+where
+    K: Eq + Hash,
 {
     pub fn new() -> Self {
         Self {
@@ -33,10 +34,12 @@ impl<K> KvIndex<K>
     }
 
     pub fn get<T>(&self, key: &K, data: &T) -> Vec<T::Value>
-        where T: Keyable<u64>
+    where
+        T: Keyable<u64>,
     {
         if let Some(values) = self.index.get(key) {
-            values.iter()
+            values
+                .iter()
                 .map(|id| data.get(id).expect("Index out of sync"))
                 .collect()
         } else {
@@ -64,7 +67,8 @@ impl<K> KvIndex<K>
 }
 
 impl<K> UniqueKvIndex<K>
-    where K: Eq + Hash
+where
+    K: Eq + Hash,
 {
     pub fn new() -> Self {
         Self {
@@ -73,9 +77,12 @@ impl<K> UniqueKvIndex<K>
     }
 
     pub fn get<T>(&self, key: &K, data: &T) -> Option<T::Value>
-        where T: Keyable<u64>
+    where
+        T: Keyable<u64>,
     {
-        self.index.get(key).map(|id| data.get(id).expect("Index out of sync"))
+        self.index
+            .get(key)
+            .map(|id| data.get(id).expect("Index out of sync"))
     }
 
     pub fn can_insert(&self, key: &K) -> bool {
@@ -87,7 +94,7 @@ impl<K> UniqueKvIndex<K>
             Entry::Vacant(entry) => {
                 entry.insert(id);
                 Ok(())
-            },
+            }
             Entry::Occupied(_) => Err(KvIndexError::UniqueIndexViolation.into()),
         }
     }
