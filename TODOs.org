@@ -4,14 +4,17 @@
   
 ** High Priority
 
+  - Simple search API - term query + booleans only
   - Gossip infrastructure
     - Cache shard routing table
     - Broadcast member list
   - Better RPC error information - hard to tell what is causing the errors
-  - Simple search API - term query + booleans only
+  - Setup clippy, rustfmt
 
 ** Everything else
    
+  - Leaseholders
+    - https://github.com/cockroachdb/cockroach/blob/master/docs/design.md#colocation-with-raft-leadership
   - Upsert
     - use bloom filter to track if a document exists
     - delete document before indexing if needed

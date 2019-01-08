@@ -155,6 +155,26 @@ impl NodeRouter {
         })
     }
 
+    pub fn search(
+        &self,
+        index_name: String,
+        query: Vec<u8>,
+    ) -> impl RpcFuture<()> {
+        let peers = self.peers.clone();
+        self.get_index(index_name.to_string()).and_then(move |index| {
+            let futures = index.shards.into_iter().map(move |shard| {
+                let replica_id = shard.replicas.first().unwrap().id;
+                let client = peers.read().unwrap().get(&replica_id).cloned().unwrap();
+                // lift the future error up into the response so we can join all
+                client.search(&index_name, shard.id, query.clone()).then(future::ok)
+            });
+            future::join_all(futures).map(|results| {
+                info!("Search response: {:?}", results);
+            })
+        })
+    }
+
+
     fn get_shard_for_document(
         &self,
         index_name: &str,

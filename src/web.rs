@@ -133,9 +133,9 @@ struct SearchResponse {
 fn search_index((ctx, payload, path): (State<RequestContext>, Json<SearchRequest>, Path<IndexPath>))
     -> impl JsonFuture<SearchResponse>
 {
-    info!("query: {:?}", payload.query);
-    // ctx.node_router.search(path.name.clone(), )
-    future::ok(Json(SearchResponse{}))
+    let query_string = serde_json::to_vec(&payload.0.query).unwrap();
+    ctx.node_router.search(path.name.to_string(), query_string)
+        .map(|_| Json(SearchResponse{}))
 }
 
 pub fn start_web(

@@ -227,6 +227,17 @@ impl Internal for InternalServer {
         let proposal = SearchStateMachine::propose_add_document(req, sender);
         propose_api(&self.network, proposal, receiver, ctx, sink);
     }
+
+    fn search(
+        &mut self,
+        ctx: RpcContext,
+        req: SearchRequest,
+        sink: UnarySink<SearchResponse>,
+    ) {
+        let (sender, receiver) = channel();
+        let proposal = SearchStateMachine::search(req, sender);
+        propose_api_result(&self.network, proposal, receiver, ctx, sink);
+    }
 }
 
 
@@ -246,15 +257,17 @@ where T: Default + Debug + Send + 'static,
     future_to_sink(f, ctx, sink);
 }
 
-fn propose_api_result<T, O>(
+fn propose_api_result<T, O, K>(
     network: &Addr<NetworkActor>,
-    proposal: RaftPropose<O, KeyValueStateMachine>,
+    proposal: RaftPropose<O, K>,
     receiver: Receiver<Result<T, Error>>,
     ctx: RpcContext,
     sink: UnarySink<T>,
 )
 where T: Default + Debug + Send + 'static,
-      O: StateMachineObserver<KeyValueStateMachine> + Send + 'static
+      O: StateMachineObserver<K> + Send + 'static,
+      K: RaftStateMachine + 'static,
+      NetworkActor: Handler<RaftPropose<O, K>>
 {
     let f = network.send(proposal).flatten().and_then(|_| receiver.from_err()).flatten();
     future_to_sink(f, ctx, sink);

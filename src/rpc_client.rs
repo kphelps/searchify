@@ -141,6 +141,18 @@ impl RpcClient {
         futurize_unit(self.client.index_document_async_opt(&request, self.options()))
     }
 
+    pub fn search(
+        &self,
+        index_name: &str,
+        shard_id: u64,
+        payload: Vec<u8>,
+    ) -> impl RpcFuture<SearchResponse> {
+        let mut request = SearchRequest::new();
+        request.set_shard_id(shard_id);
+        request.set_query(payload);
+        futurize(self.client.search_async_opt(&request, self.options()))
+    }
+
     fn options(&self) -> CallOption {
         CallOption::default()
             .wait_for_ready(true)
