@@ -1,9 +1,7 @@
 use crate::key_value_state_machine::KeyValueStateMachine;
 use crate::mappings::Mappings;
 use crate::proto::*;
-use crate::raft::{
-    RaftMessageReceived, RaftPropose, RaftStateMachine,
-};
+use crate::raft::{RaftMessageReceived, RaftPropose, RaftStateMachine};
 use crate::raft_router::RaftRouter;
 use crate::search_state_machine::SearchStateMachine;
 use actix::prelude::*;
@@ -54,7 +52,8 @@ impl Internal for InternalServer {
     ) {
         let raft_message = parse_from_bytes::<eraftpb::Message>(&req.wrapped_message).unwrap();
         // TODO: Needs to go to the correct router
-        let f = self.kv_raft_router
+        let f = self
+            .kv_raft_router
             .handle_raft_message(RaftMessageReceived {
                 raft_group_id: req.raft_group_id,
                 message: raft_message,
@@ -194,9 +193,7 @@ fn propose_api<T, K>(
     T: Default + Debug + Send + 'static,
     K: RaftStateMachine + 'static,
 {
-    let f = router
-        .propose(proposal)
-        .and_then(|_| receiver.from_err());
+    let f = router.propose(proposal).and_then(|_| receiver.from_err());
     future_to_sink(f, ctx, sink);
 }
 
@@ -270,9 +267,7 @@ pub fn start_rpc_server(
 
 impl NetworkActor {
     pub fn new() -> Self {
-        Self {
-            server: None,
-        }
+        Self { server: None }
     }
 }
 

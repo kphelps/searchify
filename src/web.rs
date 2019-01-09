@@ -2,9 +2,7 @@ use crate::config::Config;
 use crate::mappings::Mappings;
 use crate::node_router::NodeRouterHandle;
 use crate::query_api::*;
-use actix_web::{
-    self, middleware::Logger, App, HttpRequest, HttpResponse, Json, Path, State,
-};
+use actix_web::{self, middleware::Logger, App, HttpRequest, HttpResponse, Json, Path, State};
 use failure::Error;
 use futures::{future, prelude::*};
 use log::info;
