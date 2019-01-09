@@ -1,4 +1,3 @@
-use crate::network::NetworkActor;
 use crate::node_router::NodeRouterHandle;
 use crate::proto::EntryContext;
 use crate::raft_router::RaftRouter;
@@ -38,7 +37,6 @@ where
 {
     tick_interval: Duration,
     state: Rc<RefCell<RaftState<T>>>,
-    network: Addr<NetworkActor>,
     raft_router: RaftRouter<T>,
 }
 
@@ -118,9 +116,6 @@ pub struct RaftMessageReceived {
     pub message: eraftpb::Message,
 }
 
-#[derive(Message)]
-pub struct InitNetwork(pub Addr<NetworkActor>);
-
 pub trait RaftStateMachine {
     type EntryType: Message;
 
@@ -142,14 +137,12 @@ where
         storage: RaftStorage,
         state_machine: T,
         node_router: NodeRouterHandle,
-        network: &Addr<NetworkActor>,
         raft_router: &RaftRouter<T>,
     ) -> Result<Self, Error> {
         let state = RaftState::new(node_id, storage, state_machine, node_router)?;
         Ok(Self {
             tick_interval: Duration::from_millis(100),
             state: Rc::new(RefCell::new(state)),
-            network: network.clone(),
             raft_router: raft_router.clone(),
         })
     }

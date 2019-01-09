@@ -7,9 +7,6 @@ service Internal {
   rpc RaftMessage(SearchifyRaftMessage) returns (EmptyResponse) {}
   rpc Heartbeat(HeartbeatRequest) returns (EmptyResponse) {}
 
-  rpc Set(KeyValue) returns (EmptyResponse) {}
-  rpc Get(Key) returns (KeyValue) {}
-
   rpc Health(HealthRequest) returns (HealthResponse) {}
   rpc CreateIndex(CreateIndexRequest) returns (CreateIndexResponse) {}
   rpc DeleteIndex(DeleteIndexRequest) returns (EmptyResponse) {}
@@ -67,18 +64,8 @@ message Peer {
   uint64 id = 1;
 }
 
-message Key {
-  bytes key = 1;
-}
-
-message KeyValue {
-  bytes key = 1;
-  bytes value = 2;
-}
-
 message KeyValueEntry {
   oneof entry {
-    KeyValue set = 1;
     CreateIndexRequest create_index = 2;
     LivenessHeartbeat heartbeat = 3;
     DeleteIndexRequest delete_index = 4;

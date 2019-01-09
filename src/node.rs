@@ -13,19 +13,20 @@ use crate::search_state_machine::SearchStateMachine;
 use crate::storage_engine::StorageEngine;
 use crate::web::start_web;
 use actix::prelude::*;
-use actix::SystemRunner;
 use failure::Error;
 use futures::{future, sync::oneshot};
 use protobuf::parse_from_bytes;
 use std::path::Path;
 
+#[allow(dead_code)]
 pub struct System {
+    // TODO
     shutdown_signal: oneshot::Sender<()>,
 }
 
 pub fn run(config: &Config) -> Result<System, Error> {
     let config = config.clone();
-    let (sender, receiver) = oneshot::channel();
+    let (sender, _receiver) = oneshot::channel();
     tokio::run(future::lazy(move || build_system(&config).map_err(|_| ())));
     Ok(System {
         shutdown_signal: sender,
@@ -39,37 +40,33 @@ fn build_system(config: &Config) -> Result<(), Error> {
 
     let kv_raft_router = RaftRouter::<KeyValueStateMachine>::new(config.node_id);
     let search_raft_router = RaftRouter::<SearchStateMachine>::new(config.node_id);
-    let network = NetworkActor::new(config.node_id).start();
+    let network = NetworkActor::new().start();
     let server = start_rpc_server(
-        network.clone(),
         &kv_raft_router,
         &search_raft_router,
         config.node_id,
         config.port,
     )?;
-    network.try_send(ServerStarted { server });
+    let _ = network.try_send(ServerStarted { server });
 
     let node_router = NodeRouter::start(&config)?;
     let group_states = get_raft_groups(&storage_engine)?;
-    let index_coordinator = IndexCoordinator::new(
+    IndexCoordinator::start(
         &config,
         node_router.clone(),
         storage_engine.clone(),
         &group_states,
-        &network,
         &search_raft_router,
-    )?
-    .start();
+    )?;
     let group_state = group_states[0].clone();
     let storage = RaftStorage::new(group_state, storage_engine)?;
     let kv_engine = StorageEngine::new(&storage_root.join("kv"))?;
     let kv_state_machine = KeyValueStateMachine::new(kv_engine)?;
-    let raft = RaftClient::new(
+    let _raft = RaftClient::new(
         config.node_id,
         storage,
         kv_state_machine,
         node_router.clone(),
-        &network,
         &kv_raft_router,
     )?
     .start();

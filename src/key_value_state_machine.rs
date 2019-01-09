@@ -5,10 +5,9 @@ use crate::proto::*;
 use crate::raft::{FutureStateMachineObserver, RaftPropose, RaftStateMachine};
 use crate::shard_tracker::ShardTracker;
 use crate::storage_engine::StorageEngine;
-use failure::{err_msg, Error};
+use failure::Error;
 use futures::sync::oneshot::Sender;
 use log::info;
-use rocksdb::Writable;
 
 pub struct KeyValueStateMachine {
     engine: StorageEngine,
@@ -37,7 +36,6 @@ impl RaftStateMachine for KeyValueStateMachine {
         }
 
         match entry.entry.unwrap() {
-            KeyValueEntry_oneof_entry::set(kv) => self.set(kv),
             KeyValueEntry_oneof_entry::create_index(req) => self.create_index(req),
             KeyValueEntry_oneof_entry::delete_index(req) => self.delete_index(req),
             KeyValueEntry_oneof_entry::heartbeat(heartbeat) => self.liveness_heartbeat(heartbeat),
@@ -49,21 +47,6 @@ type SimpleObserver<T, F> = FutureStateMachineObserver<T, F>;
 type SimplePropose = RaftPropose<KeyValueStateMachine>;
 
 impl KeyValueStateMachine {
-    fn set(&mut self, key_value: KeyValue) -> Result<(), Error> {
-        self.engine
-            .db
-            .put(&key_value.key, &key_value.value)
-            .map_err(err_msg)
-    }
-
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
-        self.engine
-            .db
-            .get(key)
-            .map_err(err_msg)
-            .map(|opt| opt.map(|db_vec| db_vec.to_vec()))
-    }
-
     fn create_index(&mut self, request: CreateIndexRequest) -> Result<(), Error> {
         let mut index_state = IndexState::new();
         index_state.shard_count = if request.shard_count == 0 {
@@ -162,13 +145,6 @@ impl KeyValueStateMachine {
         Ok(self.shards.get_shards_assigned_to_node(node))
     }
 
-    pub fn propose_set(key_value: KeyValue, sender: Sender<EmptyResponse>) -> SimplePropose {
-        let mut entry = KeyValueEntry::new();
-        entry.set_set(key_value);
-        let observer = SimpleObserver::new(sender, |_: &KeyValueStateMachine| EmptyResponse::new());
-        SimplePropose::new(entry, observer)
-    }
-
     pub fn read_operation<F, R>(sender: Sender<R>, f: F) -> SimplePropose
     where
         F: FnOnce(&Self) -> R + Send + Sync + 'static,
@@ -177,19 +153,6 @@ impl KeyValueStateMachine {
         let entry = KeyValueEntry::new();
         let observer = SimpleObserver::new(sender, f);
         SimplePropose::new(entry, observer)
-    }
-
-    pub fn propose_get(key: Key, sender: Sender<KeyValue>) -> SimplePropose {
-        Self::read_operation(sender, move |sm| {
-            let value = sm.get(&key.key);
-            let mut kv = KeyValue::new();
-            kv.set_key(key.key);
-            // TODO: need to differ between actual errors and not found
-            if let Ok(Some(inner)) = value {
-                kv.set_value(inner);
-            }
-            kv
-        })
     }
 
     pub fn propose_create_index(

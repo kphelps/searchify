@@ -2,7 +2,6 @@ use crate::keys::IntoKey;
 use failure::{err_msg, Error};
 use protobuf::{self, Message};
 use rocksdb::{ReadOptions, Writable, WriteBatch, DB};
-use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
 

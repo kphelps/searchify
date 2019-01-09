@@ -1,7 +1,5 @@
 use crate::cached_persistent_cell::CachedPersistentCell;
 use crate::keys::{KeySpace, MetaKey};
-use crate::mappings::Mappings;
-use crate::network::NetworkActor;
 use crate::node_router::NodeRouterHandle;
 use crate::proto::*;
 use crate::raft::RaftClient;
@@ -17,9 +15,9 @@ type RaftStateCell = CachedPersistentCell<RaftGroupMetaState>;
 type StateCell = CachedPersistentCell<ShardState>;
 
 pub struct Shard {
-    raft_state: RaftStateCell,
-    state: StateCell,
-    raft: Addr<RaftClient<SearchStateMachine>>,
+    _raft_state: RaftStateCell,
+    _state: StateCell,
+    _raft: Addr<RaftClient<SearchStateMachine>>,
 }
 
 fn new_raft_state_cell(engine: &StorageEngine, shard_id: u64) -> Result<RaftStateCell, Error> {
@@ -39,7 +37,6 @@ impl Shard {
         node_id: u64,
         node_router: NodeRouterHandle,
         raft_storage_engine: &StorageEngine,
-        network: &Addr<NetworkActor>,
         storage_root: &str,
         raft_router: &RaftRouter<SearchStateMachine>,
     ) -> Result<Self, Error> {
@@ -63,15 +60,14 @@ impl Shard {
             raft_storage,
             state_machine,
             node_router,
-            network,
             raft_router,
         )?
         .start();
 
         let shard = Self {
-            raft_state,
-            state,
-            raft,
+            _raft_state: raft_state,
+            _state: state,
+            _raft: raft,
         };
 
         Ok(shard)
@@ -82,7 +78,6 @@ impl Shard {
         node_id: u64,
         node_router: NodeRouterHandle,
         raft_storage_engine: &StorageEngine,
-        network: &Addr<NetworkActor>,
         storage_root: &str,
         raft_router: &RaftRouter<SearchStateMachine>,
     ) -> Result<Self, Error> {
@@ -107,7 +102,6 @@ impl Shard {
             node_id,
             node_router,
             raft_storage_engine,
-            network,
             storage_root,
             raft_router,
         )

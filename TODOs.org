@@ -23,11 +23,11 @@
   - Consider switching out actix-web for something else
   - Leaseholders
     - https://github.com/cockroachdb/cockroach/blob/master/docs/design.md#range-leases
+  - Cluster health (i.e. are we under replicated? are we available?)
   - Upsert
     - use bloom filter to track if a document exists
     - delete document before indexing if needed
   - Allocate under replicated shards when nodes come online
-  - Cluster health (i.e. are we under replicated? are we available?)
   - Allow nodes to join cluster without joining master raft group
   - Don't poll for state changes, leader should broadcast events
   

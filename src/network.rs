@@ -2,14 +2,13 @@ use crate::key_value_state_machine::KeyValueStateMachine;
 use crate::mappings::Mappings;
 use crate::proto::*;
 use crate::raft::{
-    RaftClient, RaftMessageReceived, RaftPropose, RaftStateMachine, StateMachineObserver,
+    RaftMessageReceived, RaftPropose, RaftStateMachine,
 };
 use crate::raft_router::RaftRouter;
 use crate::search_state_machine::SearchStateMachine;
 use actix::prelude::*;
 use failure::{err_msg, Error};
 use futures::{
-    future,
     prelude::*,
     sync::oneshot::{channel, Receiver},
 };
@@ -17,15 +16,12 @@ use grpcio::{EnvBuilder, RpcContext, RpcStatus, RpcStatusCode, Server, ServerBui
 use log::*;
 use protobuf::parse_from_bytes;
 use raft::eraftpb;
-use std::boxed::Box;
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
 #[derive(Clone)]
 struct InternalServer {
     peer_id: u64,
-    network: Addr<NetworkActor>,
     kv_raft_router: RaftRouter<KeyValueStateMachine>,
     search_raft_router: RaftRouter<SearchStateMachine>,
 }
@@ -47,7 +43,7 @@ impl Internal for InternalServer {
         debug!("Heartbeat from '{}'", req.get_peer().get_id());
         let (sender, receiver) = channel();
         let proposal = KeyValueStateMachine::propose_heartbeat(req, sender);
-        propose_api(&self.network, proposal, receiver, ctx, sink);
+        propose_api(&self.kv_raft_router, proposal, receiver, ctx, sink);
     }
 
     fn raft_message(
@@ -56,28 +52,15 @@ impl Internal for InternalServer {
         req: SearchifyRaftMessage,
         sink: UnarySink<EmptyResponse>,
     ) {
-        let network = self.network.clone();
         let raft_message = parse_from_bytes::<eraftpb::Message>(&req.wrapped_message).unwrap();
-        let f = network
-            .send(RaftMessageReceived {
+        // TODO: Needs to go to the correct router
+        let f = self.kv_raft_router
+            .handle_raft_message(RaftMessageReceived {
                 raft_group_id: req.raft_group_id,
                 message: raft_message,
             })
-            .flatten()
             .map(|_| EmptyResponse::new());
         future_to_sink(f, ctx, sink);
-    }
-
-    fn set(&mut self, ctx: RpcContext, req: KeyValue, sink: UnarySink<EmptyResponse>) {
-        let (sender, receiver) = channel();
-        let proposal = KeyValueStateMachine::propose_set(req, sender);
-        propose_api(&self.network, proposal, receiver, ctx, sink);
-    }
-
-    fn get(&mut self, ctx: RpcContext, req: Key, sink: UnarySink<KeyValue>) {
-        let (sender, receiver) = channel();
-        let proposal = KeyValueStateMachine::propose_get(req, sender);
-        propose_api(&self.network, proposal, receiver, ctx, sink);
     }
 
     fn create_index(
@@ -92,7 +75,7 @@ impl Internal for InternalServer {
         } else {
             let (sender, receiver) = channel();
             let proposal = KeyValueStateMachine::propose_create_index(req, sender);
-            propose_api(&self.network, proposal, receiver, ctx, sink);
+            propose_api(&self.kv_raft_router, proposal, receiver, ctx, sink);
         }
     }
 
@@ -104,7 +87,7 @@ impl Internal for InternalServer {
     ) {
         let (sender, receiver) = channel();
         let proposal = KeyValueStateMachine::propose_delete_index(req, sender);
-        propose_api(&self.network, proposal, receiver, ctx, sink);
+        propose_api(&self.kv_raft_router, proposal, receiver, ctx, sink);
     }
 
     fn get_index(&mut self, ctx: RpcContext, req: GetIndexRequest, sink: UnarySink<IndexState>) {
@@ -113,13 +96,13 @@ impl Internal for InternalServer {
             sm.index(&req.name)
                 .and_then(|option| option.ok_or(err_msg("Not found")))
         });
-        propose_api_result(&self.network, proposal, receiver, ctx, sink);
+        propose_api_result(&self.kv_raft_router, proposal, receiver, ctx, sink);
     }
 
     fn list_indices(
         &mut self,
         ctx: RpcContext,
-        req: ListIndicesRequest,
+        _req: ListIndicesRequest,
         sink: UnarySink<ListIndicesResponse>,
     ) {
         let (sender, receiver) = channel();
@@ -129,13 +112,13 @@ impl Internal for InternalServer {
             response.set_indices(indices.into());
             response
         });
-        propose_api(&self.network, proposal, receiver, ctx, sink);
+        propose_api(&self.kv_raft_router, proposal, receiver, ctx, sink);
     }
 
     fn list_nodes(
         &mut self,
         ctx: RpcContext,
-        req: ListNodesRequest,
+        _req: ListNodesRequest,
         sink: UnarySink<ListNodesResponse>,
     ) {
         let (sender, receiver) = channel();
@@ -153,18 +136,19 @@ impl Internal for InternalServer {
             response.set_nodes(nodes);
             Ok(response)
         });
-        propose_api_result(&self.network, proposal, receiver, ctx, sink);
+        propose_api_result(&self.kv_raft_router, proposal, receiver, ctx, sink);
     }
 
-    fn health(&mut self, ctx: RpcContext, req: HealthRequest, sink: UnarySink<HealthResponse>) {
+    fn health(&mut self, ctx: RpcContext, _req: HealthRequest, sink: UnarySink<HealthResponse>) {
         let (sender, receiver) = channel();
-        let proposal = KeyValueStateMachine::read_operation(sender, move |sm| {
+        let proposal = KeyValueStateMachine::read_operation(sender, move |_| {
+            // TODO
             let mut response = HealthResponse::new();
             response.available = true;
             response.fully_replicated = true;
             response
         });
-        propose_api(&self.network, proposal, receiver, ctx, sink);
+        propose_api(&self.kv_raft_router, proposal, receiver, ctx, sink);
     }
 
     fn list_shards(
@@ -179,7 +163,7 @@ impl Internal for InternalServer {
             response.set_shards(sm.shards_for_node(req.get_peer().get_id())?.into());
             Ok(response)
         });
-        propose_api_result(&self.network, proposal, receiver, ctx, sink);
+        propose_api_result(&self.kv_raft_router, proposal, receiver, ctx, sink);
     }
 
     fn index_document(
@@ -190,18 +174,18 @@ impl Internal for InternalServer {
     ) {
         let (sender, receiver) = channel();
         let proposal = SearchStateMachine::propose_add_document(req, sender);
-        propose_api(&self.network, proposal, receiver, ctx, sink);
+        propose_api(&self.search_raft_router, proposal, receiver, ctx, sink);
     }
 
     fn search(&mut self, ctx: RpcContext, req: SearchRequest, sink: UnarySink<SearchResponse>) {
         let (sender, receiver) = channel();
         let proposal = SearchStateMachine::search(req, sender);
-        propose_api_result(&self.network, proposal, receiver, ctx, sink);
+        propose_api_result(&self.search_raft_router, proposal, receiver, ctx, sink);
     }
 }
 
 fn propose_api<T, K>(
-    network: &Addr<NetworkActor>,
+    router: &RaftRouter<K>,
     proposal: RaftPropose<K>,
     receiver: Receiver<T>,
     ctx: RpcContext,
@@ -209,17 +193,15 @@ fn propose_api<T, K>(
 ) where
     T: Default + Debug + Send + 'static,
     K: RaftStateMachine + 'static,
-    NetworkActor: Handler<RaftPropose<K>>,
 {
-    let f = network
-        .send(proposal)
-        .flatten()
+    let f = router
+        .propose(proposal)
         .and_then(|_| receiver.from_err());
     future_to_sink(f, ctx, sink);
 }
 
 fn propose_api_result<T, K>(
-    network: &Addr<NetworkActor>,
+    router: &RaftRouter<K>,
     proposal: RaftPropose<K>,
     receiver: Receiver<Result<T, Error>>,
     ctx: RpcContext,
@@ -227,11 +209,9 @@ fn propose_api_result<T, K>(
 ) where
     T: Default + Debug + Send + 'static,
     K: RaftStateMachine + 'static,
-    NetworkActor: Handler<RaftPropose<K>>,
 {
-    let f = network
-        .send(proposal)
-        .flatten()
+    let f = router
+        .propose(proposal)
         .and_then(|_| receiver.from_err())
         .flatten();
     future_to_sink(f, ctx, sink);
@@ -257,10 +237,7 @@ where
 }
 
 pub struct NetworkActor {
-    peer_id: u64,
     server: Option<Server>,
-    kv_raft_groups: HashMap<u64, Addr<RaftClient<KeyValueStateMachine>>>,
-    search_raft_groups: HashMap<u64, Addr<RaftClient<SearchStateMachine>>>,
 }
 
 #[derive(Message)]
@@ -268,16 +245,9 @@ pub struct ServerStarted {
     pub server: Server,
 }
 
-#[derive(Message)]
-#[rtype(result = "Result<(), Error>")]
-pub struct CreateIndex {
-    pub index_name: String,
-}
-
 const GLOBAL_RAFT_ID: u64 = 0;
 
 pub fn start_rpc_server(
-    network: Addr<NetworkActor>,
     kv_raft_router: &RaftRouter<KeyValueStateMachine>,
     search_raft_router: &RaftRouter<SearchStateMachine>,
     node_id: u64,
@@ -285,7 +255,6 @@ pub fn start_rpc_server(
 ) -> Result<Server, Error> {
     let service = create_internal(InternalServer {
         peer_id: node_id,
-        network,
         kv_raft_router: kv_raft_router.clone(),
         search_raft_router: search_raft_router.clone(),
     });
@@ -300,17 +269,10 @@ pub fn start_rpc_server(
 }
 
 impl NetworkActor {
-    pub fn new(peer_id: u64) -> Self {
+    pub fn new() -> Self {
         Self {
-            peer_id: peer_id,
             server: None,
-            kv_raft_groups: HashMap::new(),
-            search_raft_groups: HashMap::new(),
         }
-    }
-
-    fn global_raft(&self) -> Option<&Addr<RaftClient<KeyValueStateMachine>>> {
-        self.kv_raft_groups.get(&GLOBAL_RAFT_ID)
     }
 }
 
@@ -321,72 +283,7 @@ impl Actor for NetworkActor {
 impl Handler<ServerStarted> for NetworkActor {
     type Result = ();
 
-    fn handle(&mut self, message: ServerStarted, ctx: &mut Context<Self>) {
+    fn handle(&mut self, message: ServerStarted, _ctx: &mut Context<Self>) {
         self.server = Some(message.server);
-    }
-}
-
-impl Handler<RaftMessageReceived> for NetworkActor {
-    type Result = ResponseFuture<(), Error>;
-
-    fn handle(&mut self, message: RaftMessageReceived, _ctx: &mut Context<Self>) -> Self::Result {
-        debug!(
-            "[group-{}] Received message for {}",
-            message.raft_group_id, message.message.to
-        );
-        let kv_raft = self
-            .kv_raft_groups
-            .get(&message.raft_group_id)
-            .cloned()
-            .map(|r| r.recipient());
-        let search_raft = self
-            .search_raft_groups
-            .get(&message.raft_group_id)
-            .cloned()
-            .map(|r| r.recipient());
-        let raft = kv_raft.or(search_raft);
-        if raft.is_none() {
-            let error = err_msg(format!("Unknown raft group: {}", message.raft_group_id));
-            return Box::new(future::err(error));
-        }
-        let f = raft.unwrap().send(message).flatten();
-        Box::new(f)
-    }
-}
-
-impl Handler<RaftPropose<KeyValueStateMachine>> for NetworkActor {
-    type Result = ResponseFuture<(), Error>;
-
-    fn handle(
-        &mut self,
-        message: RaftPropose<KeyValueStateMachine>,
-        _ctx: &mut Context<Self>,
-    ) -> Self::Result {
-        let maybe_global = self.global_raft();
-        if maybe_global.is_none() {
-            return Box::new(future::err(err_msg("Not a member of meta group")));
-        }
-        let global = maybe_global.unwrap();
-        let f = global.send(message).flatten();
-        Box::new(f)
-    }
-}
-
-impl Handler<RaftPropose<SearchStateMachine>> for NetworkActor {
-    type Result = ResponseFuture<(), Error>;
-
-    fn handle(
-        &mut self,
-        message: RaftPropose<SearchStateMachine>,
-        _ctx: &mut Context<Self>,
-    ) -> Self::Result {
-        let maybe_group = self.search_raft_groups.get(&message.raft_group_id);
-        if maybe_group.is_none() {
-            return Box::new(future::err(err_msg("Not a member of shard group")));
-        }
-        let group = maybe_group.unwrap();
-        debug!("[group-{}] Proposal!", message.raft_group_id);
-        let f = group.send(message).flatten();
-        Box::new(f)
     }
 }

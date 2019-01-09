@@ -4,7 +4,7 @@ use crate::keys::{self, KeySpace};
 use crate::kv_index::KvIndex;
 use crate::proto::ShardState;
 use crate::storage_engine::StorageEngine;
-use failure::{err_msg, Error};
+use failure::Error;
 use std::collections::HashSet;
 
 pub struct ShardTracker {

@@ -1,51 +1,38 @@
 use crate::config::Config;
-use crate::network::NetworkActor;
 use crate::node_router::NodeRouterHandle;
 use crate::proto::*;
 use crate::raft_router::RaftRouter;
-use crate::raft_storage::init_raft_group;
 use crate::search_state_machine::SearchStateMachine;
 use crate::shard::Shard;
 use crate::storage_engine::StorageEngine;
-use actix::prelude::*;
 use failure::Error;
 use futures::prelude::*;
 use log::*;
 use std::collections::HashMap;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 pub struct IndexCoordinator {
     config: Config,
     node_router: NodeRouterHandle,
     raft_storage_engine: StorageEngine,
     shards: HashMap<u64, Shard>,
-    network: Addr<NetworkActor>,
     raft_router: RaftRouter<SearchStateMachine>,
 }
 
-impl Actor for IndexCoordinator {
-    type Context = Context<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
-        ctx.run_interval(Duration::from_secs(5), Self::poll_node_info);
-    }
-}
-
 impl IndexCoordinator {
-    pub fn new(
+    pub fn start(
         config: &Config,
         node_router: NodeRouterHandle,
         raft_storage_engine: StorageEngine,
         raft_group_states: &Vec<RaftGroupMetaState>,
-        network: &Addr<NetworkActor>,
         raft_router: &RaftRouter<SearchStateMachine>,
-    ) -> Result<Self, Error> {
+    ) -> Result<(), Error> {
         let mut coordinator = Self {
             config: config.clone(),
             node_router: node_router,
             raft_storage_engine,
             shards: HashMap::new(),
-            network: network.clone(),
             raft_router: raft_router.clone(),
         };
 
@@ -60,26 +47,33 @@ impl IndexCoordinator {
             })
             .collect::<Result<(), Error>>()?;
 
-        Ok(coordinator)
+        Ok(coordinator.run())
     }
 
-    fn poll_node_info(&mut self, ctx: &mut Context<Self>) {
-        let f = self
-            .node_router
-            .list_shards(self.config.node_id)
-            .into_actor(self)
-            .map(|shards, this, ctx| {
-                shards.iter().for_each(|shard| {
-                    if this.shards.get(&shard.id).is_none() {
-                        if let Err(err) = this.allocate_shard(&shard) {
-                            error!("Failed to allocate shard: {:?}", err);
-                        }
-                    }
-                })
-            })
-            .map_err(|_, _, _| ());
+    fn run(self) {
+        let this = Arc::new(Mutex::new(self));
+        let task = tokio::timer::Interval::new(Instant::now(), Duration::from_secs(5))
+            .from_err()
+            .for_each(move |_| Self::poll_node_info(this.clone()))
+            .map_err(|err| error!("Error in node polling loop: {:?}", err));
+        tokio::run(task);
+    }
 
-        ctx.spawn(f);
+    fn poll_node_info(this: Arc<Mutex<Self>>) -> impl Future<Item = (), Error = Error> {
+        let f = {
+            let inner = this.lock().unwrap();
+            inner.node_router.list_shards(inner.config.node_id)
+        };
+        f.map(move |shards| {
+            let mut inner = this.lock().unwrap();
+            shards.iter().for_each(|shard| {
+                if inner.shards.get(&shard.id).is_none() {
+                    if let Err(err) = inner.allocate_shard(&shard) {
+                        error!("Failed to allocate shard: {:?}", err);
+                    }
+                }
+            })
+        })
     }
 
     fn initialize_shard_from_disk(&mut self, state: &RaftGroupMetaState) -> Result<(), Error> {
@@ -89,7 +83,6 @@ impl IndexCoordinator {
             self.config.node_id,
             self.node_router.clone(),
             &self.raft_storage_engine,
-            &self.network,
             &self.config.search_storage_root(),
             &self.raft_router,
         )?;
@@ -104,7 +97,6 @@ impl IndexCoordinator {
             self.config.node_id,
             self.node_router.clone(),
             &self.raft_storage_engine,
-            &self.network,
             &self.config.search_storage_root(),
             &self.raft_router,
         )?;

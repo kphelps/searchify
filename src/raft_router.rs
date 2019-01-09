@@ -4,7 +4,7 @@ use failure::{format_err, Error};
 use futures::{
     future,
     prelude::*,
-    sync::{mpsc, oneshot},
+    sync::mpsc,
 };
 use log::*;
 use std::clone::Clone;
@@ -82,6 +82,10 @@ where
         message: RaftMessageReceived,
     ) -> impl Future<Item = (), Error = Error> {
         self.send(RaftRouterEvent::Message(message))
+    }
+
+    pub fn propose(&self, proposal: RaftPropose<K>) -> impl Future<Item = (), Error = Error> {
+        self.send(RaftRouterEvent::Propose(proposal))
     }
 
     fn send(&self, event: RaftRouterEvent<K>) -> impl Future<Item = (), Error = Error> {

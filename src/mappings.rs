@@ -1,5 +1,4 @@
 use failure::{format_err, Error};
-use log::*;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;

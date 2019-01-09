@@ -58,19 +58,6 @@ impl RpcClient {
         futurize_unit(self.client.raft_message_async_opt(&request, self.options()))
     }
 
-    pub fn set(&self, key: &[u8], value: &[u8]) -> impl Future<Item = (), Error = Error> {
-        let mut kv = KeyValue::new();
-        kv.key = key.to_vec();
-        kv.value = value.to_vec();
-        futurize_unit(self.client.set_async_opt(&kv, self.options()))
-    }
-
-    pub fn get(&self, key: &[u8]) -> impl Future<Item = KeyValue, Error = Error> {
-        let mut request = Key::new();
-        request.key = key.to_vec();
-        futurize(self.client.get_async_opt(&request, self.options()))
-    }
-
     pub fn create_index(
         &self,
         name: &str,
@@ -128,7 +115,7 @@ impl RpcClient {
 
     pub fn index_document(
         &self,
-        index_name: &str,
+        _index_name: &str,
         shard_id: u64,
         payload: serde_json::Value,
     ) -> impl Future<Item = (), Error = Error> {
@@ -143,7 +130,7 @@ impl RpcClient {
 
     pub fn search(
         &self,
-        index_name: &str,
+        _index_name: &str,
         shard_id: u64,
         payload: Vec<u8>,
     ) -> impl Future<Item = SearchResponse, Error = Error> {

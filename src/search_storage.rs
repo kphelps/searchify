@@ -1,4 +1,4 @@
-use crate::mappings::{MappedDocument, Mappings};
+use crate::mappings::MappedDocument;
 use crate::proto::{SearchRequest, SearchResponse};
 use crate::query_api::{SearchQuery, ToQuery};
 use failure::Error;
