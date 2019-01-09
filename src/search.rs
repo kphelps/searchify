@@ -2,7 +2,9 @@ use crate::config::Config;
 use crate::network::NetworkActor;
 use crate::node_router::NodeRouterHandle;
 use crate::proto::*;
+use crate::raft_router::RaftRouter;
 use crate::raft_storage::init_raft_group;
+use crate::search_state_machine::SearchStateMachine;
 use crate::shard::Shard;
 use crate::storage_engine::StorageEngine;
 use actix::prelude::*;
@@ -18,6 +20,7 @@ pub struct IndexCoordinator {
     raft_storage_engine: StorageEngine,
     shards: HashMap<u64, Shard>,
     network: Addr<NetworkActor>,
+    raft_router: RaftRouter<SearchStateMachine>,
 }
 
 impl Actor for IndexCoordinator {
@@ -35,6 +38,7 @@ impl IndexCoordinator {
         raft_storage_engine: StorageEngine,
         raft_group_states: &Vec<RaftGroupMetaState>,
         network: &Addr<NetworkActor>,
+        raft_router: &RaftRouter<SearchStateMachine>,
     ) -> Result<Self, Error> {
         let mut coordinator = Self {
             config: config.clone(),
@@ -42,6 +46,7 @@ impl IndexCoordinator {
             raft_storage_engine,
             shards: HashMap::new(),
             network: network.clone(),
+            raft_router: raft_router.clone(),
         };
 
         raft_group_states
@@ -86,6 +91,7 @@ impl IndexCoordinator {
             &self.raft_storage_engine,
             &self.network,
             &self.config.search_storage_root(),
+            &self.raft_router,
         )?;
         self.shards.insert(state.get_id(), shard);
         Ok(())
@@ -100,6 +106,7 @@ impl IndexCoordinator {
             &self.raft_storage_engine,
             &self.network,
             &self.config.search_storage_root(),
+            &self.raft_router,
         )?;
         self.shards.insert(shard_state.get_id(), shard);
         Ok(())

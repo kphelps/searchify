@@ -1,33 +1,53 @@
 use crate::config::Config;
 use crate::key_value_state_machine::KeyValueStateMachine;
-use crate::network::NetworkActor;
+use crate::network::{start_rpc_server, NetworkActor, ServerStarted};
 use crate::node_router::NodeRouter;
-use crate::proto::{Peer, RaftGroupMetaState, RaftGroupType};
-use crate::raft::{InitNetwork, RaftClient};
+use crate::proto::{RaftGroupMetaState, RaftGroupType};
+use crate::raft::RaftClient;
+use crate::raft_router::RaftRouter;
 use crate::raft_storage::{
     init_raft_group, RaftStorage, LOCAL_PREFIX, RAFT_GROUP_META_PREFIX, RAFT_GROUP_META_PREFIX_KEY,
 };
 use crate::search::IndexCoordinator;
+use crate::search_state_machine::SearchStateMachine;
 use crate::storage_engine::StorageEngine;
 use crate::web::start_web;
 use actix::prelude::*;
 use actix::SystemRunner;
 use failure::Error;
+use futures::{future, sync::oneshot};
 use protobuf::parse_from_bytes;
 use std::path::Path;
 
-pub fn run(config: &Config) -> Result<(), Error> {
-    let _ = build_system(config)?.run();
-    Ok(())
+pub struct System {
+    shutdown_signal: oneshot::Sender<()>,
 }
 
-fn build_system(config: &Config) -> Result<SystemRunner, Error> {
-    let sys = System::new("searchify");
+pub fn run(config: &Config) -> Result<System, Error> {
+    let config = config.clone();
+    let (sender, receiver) = oneshot::channel();
+    tokio::run(future::lazy(move || build_system(&config).map_err(|_| ())));
+    Ok(System {
+        shutdown_signal: sender,
+    })
+}
+
+fn build_system(config: &Config) -> Result<(), Error> {
     let storage_root = Path::new(&config.storage_root);
     let storage_engine = StorageEngine::new(&storage_root.join("cluster"))?;
     init_node(&config.master_ids, &storage_engine)?;
 
-    let network = NetworkActor::start(config.node_id, config.port)?;
+    let kv_raft_router = RaftRouter::<KeyValueStateMachine>::new(config.node_id);
+    let search_raft_router = RaftRouter::<SearchStateMachine>::new(config.node_id);
+    let network = NetworkActor::new(config.node_id).start();
+    let server = start_rpc_server(
+        network.clone(),
+        &kv_raft_router,
+        &search_raft_router,
+        config.node_id,
+        config.port,
+    )?;
+    network.try_send(ServerStarted { server });
 
     let node_router = NodeRouter::start(&config)?;
     let group_states = get_raft_groups(&storage_engine)?;
@@ -37,6 +57,7 @@ fn build_system(config: &Config) -> Result<SystemRunner, Error> {
         storage_engine.clone(),
         &group_states,
         &network,
+        &search_raft_router,
     )?
     .start();
     let group_state = group_states[0].clone();
@@ -49,11 +70,11 @@ fn build_system(config: &Config) -> Result<SystemRunner, Error> {
         kv_state_machine,
         node_router.clone(),
         &network,
+        &kv_raft_router,
     )?
     .start();
     start_web(config, node_router);
-
-    Ok(sys)
+    Ok(())
 }
 
 fn init_node(master_ids: &[u64], engine: &StorageEngine) -> Result<(), Error> {

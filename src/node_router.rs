@@ -94,7 +94,7 @@ impl NodeRouter {
         &self,
         message: raft::eraftpb::Message,
         raft_group_id: u64,
-    ) -> impl Future<Item=(), Error=Error> {
+    ) -> impl Future<Item = (), Error = Error> {
         debug!(
             "[group-{}] Routing message to {}",
             raft_group_id, message.to
@@ -109,29 +109,29 @@ impl NodeRouter {
         shard_count: u64,
         replica_count: u64,
         mappings: Mappings,
-    ) -> impl Future<Item=(), Error=Error> {
+    ) -> impl Future<Item = (), Error = Error> {
         self.with_leader_client(move |client| {
             client.create_index(&name, shard_count, replica_count, mappings)
         })
     }
 
-    pub fn delete_index(&self, name: String) -> impl Future<Item=(), Error=Error> {
+    pub fn delete_index(&self, name: String) -> impl Future<Item = (), Error = Error> {
         self.with_leader_client(move |client| client.delete_index(&name))
     }
 
-    pub fn get_index(&self, name: String) -> impl Future<Item=IndexState, Error=Error> {
+    pub fn get_index(&self, name: String) -> impl Future<Item = IndexState, Error = Error> {
         self.with_leader_client(move |client| client.get_index(&name))
     }
 
-    pub fn list_indices(&self) -> impl Future<Item=ListIndicesResponse, Error=Error> {
+    pub fn list_indices(&self) -> impl Future<Item = ListIndicesResponse, Error = Error> {
         self.with_leader_client(move |client| client.list_indices())
     }
 
-    pub fn list_shards(&self, node_id: u64) -> impl Future<Item=Vec<ShardState>, Error=Error> {
+    pub fn list_shards(&self, node_id: u64) -> impl Future<Item = Vec<ShardState>, Error = Error> {
         self.with_leader_client(move |client| client.list_shards(node_id))
     }
 
-    pub fn send_heartbeat(&self) -> impl Future<Item=(), Error=Error> {
+    pub fn send_heartbeat(&self) -> impl Future<Item = (), Error = Error> {
         self.with_leader_client(|client| client.heartbeat())
     }
 
@@ -144,7 +144,7 @@ impl NodeRouter {
         index_name: String,
         document_id: u64,
         payload: serde_json::Value,
-    ) -> impl Future<Item=(), Error=Error> {
+    ) -> impl Future<Item = (), Error = Error> {
         // TODO: should get handle, not clone
         let peers = self.peers.clone();
         self.get_shard_for_document(&index_name, document_id)
@@ -155,7 +155,11 @@ impl NodeRouter {
             })
     }
 
-    pub fn search(&self, index_name: String, query: Vec<u8>) -> impl Future<Item=(), Error=Error> {
+    pub fn search(
+        &self,
+        index_name: String,
+        query: Vec<u8>,
+    ) -> impl Future<Item = (), Error = Error> {
         let peers = self.peers.clone();
         self.get_index(index_name.to_string())
             .and_then(move |index| {
@@ -177,7 +181,7 @@ impl NodeRouter {
         &self,
         index_name: &str,
         document_id: u64,
-    ) -> impl Future<Item=ShardState, Error=Error> {
+    ) -> impl Future<Item = ShardState, Error = Error> {
         // TODO: obviously need a shard routing algorithm
         self.get_index(index_name.to_string()).map(move |index| {
             index
@@ -209,10 +213,10 @@ impl NodeRouter {
         self.peer(id).map_err(|_| err_msg("no leader available"))
     }
 
-    fn with_leader_client<F, X, R>(&self, f: F) -> impl Future<Item=R, Error=Error>
+    fn with_leader_client<F, X, R>(&self, f: F) -> impl Future<Item = R, Error = Error>
     where
         F: FnOnce(RpcClient) -> X,
-        X: Future<Item=R, Error=Error>,
+        X: Future<Item = R, Error = Error>,
     {
         future::result(self.leader_client()).and_then(f)
     }

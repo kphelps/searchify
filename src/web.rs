@@ -63,7 +63,7 @@ fn create_index(
         Json<CreateIndexRequest>,
         Path<IndexPath>,
     ),
-) -> impl Future<Item=Json<Test>, Error=Error> {
+) -> impl Future<Item = Json<Test>, Error = Error> {
     ctx.node_router
         .create_index(
             path.name.clone(),
@@ -79,7 +79,9 @@ fn create_index(
         .from_err()
 }
 
-fn delete_index(request: &HttpRequest<RequestContext>) -> impl Future<Item = HttpResponse, Error = Error> {
+fn delete_index(
+    request: &HttpRequest<RequestContext>,
+) -> impl Future<Item = HttpResponse, Error = Error> {
     let network = request.state().node_router();
     future::result(request.match_info().query("name"))
         .from_err::<Error>()
@@ -87,7 +89,9 @@ fn delete_index(request: &HttpRequest<RequestContext>) -> impl Future<Item = Htt
         .map(|_| HttpResponse::NoContent().finish())
 }
 
-fn list_indices(request: &HttpRequest<RequestContext>) -> impl Future<Item = Json<Vec<Index>>, Error = Error> {
+fn list_indices(
+    request: &HttpRequest<RequestContext>,
+) -> impl Future<Item = Json<Vec<Index>>, Error = Error> {
     request
         .state()
         .node_router()
@@ -113,7 +117,7 @@ struct DocumentPath {
 
 fn index_document(
     (ctx, payload, path): (State<RequestContext>, Json<Value>, Path<DocumentPath>),
-) -> impl Future<Item=Json<IndexDocumentResponse>, Error=Error> {
+) -> impl Future<Item = Json<IndexDocumentResponse>, Error = Error> {
     let mut hasher = DefaultHasher::new();
     hasher.write_u64(path.document_id);
     ctx.node_router

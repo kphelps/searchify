@@ -1,9 +1,16 @@
 #+TODO: TODO DOING | DONE
 
+* Current Notes
+  * Removing actix because its terrible
+  * Should split RPC into two services (KV and Search)
+  * RaftRouter will replace NetworkActor
+  * Need to replace RaftClient with another process
+
 * Todo list
   
 ** High Priority
 
+  - Remove `actix` (single threaded is going to be problematic)
   - Gossip infrastructure
     - Cache shard routing table
     - Broadcast member list
@@ -13,6 +20,7 @@
 
 ** Everything else
    
+  - Consider switching out actix-web for something else
   - Leaseholders
     - https://github.com/cockroachdb/cockroach/blob/master/docs/design.md#range-leases
   - Upsert

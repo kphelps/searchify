@@ -5,6 +5,7 @@ use crate::network::NetworkActor;
 use crate::node_router::NodeRouterHandle;
 use crate::proto::*;
 use crate::raft::RaftClient;
+use crate::raft_router::RaftRouter;
 use crate::raft_storage::{init_raft_group, RaftStorage};
 use crate::search_state_machine::SearchStateMachine;
 use crate::storage_engine::StorageEngine;
@@ -40,6 +41,7 @@ impl Shard {
         raft_storage_engine: &StorageEngine,
         network: &Addr<NetworkActor>,
         storage_root: &str,
+        raft_router: &RaftRouter<SearchStateMachine>,
     ) -> Result<Self, Error> {
         let raft_state = new_raft_state_cell(raft_storage_engine, id)?;
         let group_state = raft_state
@@ -56,8 +58,15 @@ impl Shard {
         let state_machine = SearchStateMachine::new(id, storage_path, mappings)?;
 
         let raft_storage = RaftStorage::new(group_state.clone(), raft_storage_engine.clone())?;
-        let raft =
-            RaftClient::new(node_id, raft_storage, state_machine, node_router, network)?.start();
+        let raft = RaftClient::new(
+            node_id,
+            raft_storage,
+            state_machine,
+            node_router,
+            network,
+            raft_router,
+        )?
+        .start();
 
         let shard = Self {
             raft_state,
@@ -75,6 +84,7 @@ impl Shard {
         raft_storage_engine: &StorageEngine,
         network: &Addr<NetworkActor>,
         storage_root: &str,
+        raft_router: &RaftRouter<SearchStateMachine>,
     ) -> Result<Self, Error> {
         init_raft_group(
             raft_storage_engine,
@@ -99,6 +109,7 @@ impl Shard {
             raft_storage_engine,
             network,
             storage_root,
+            raft_router,
         )
     }
 }

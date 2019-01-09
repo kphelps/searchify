@@ -22,6 +22,7 @@ mod persistent_map;
 mod proto;
 mod query_api;
 mod raft;
+mod raft_router;
 mod raft_storage;
 mod rpc_client;
 mod search;
@@ -58,5 +59,6 @@ fn start() -> Result<(), Error> {
 
     let config_path = matches.value_of("config").unwrap();
     let settings = config::Config::new(config_path)?;
-    node::run(&settings)
+    let _ = node::run(&settings)?;
+    Ok(())
 }

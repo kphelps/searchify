@@ -4,6 +4,7 @@ use crate::proto::*;
 use crate::raft::{
     RaftClient, RaftMessageReceived, RaftPropose, RaftStateMachine, StateMachineObserver,
 };
+use crate::raft_router::RaftRouter;
 use crate::search_state_machine::SearchStateMachine;
 use actix::prelude::*;
 use failure::{err_msg, Error};
@@ -25,6 +26,8 @@ use std::sync::Arc;
 struct InternalServer {
     peer_id: u64,
     network: Addr<NetworkActor>,
+    kv_raft_router: RaftRouter<KeyValueStateMachine>,
+    search_raft_router: RaftRouter<SearchStateMachine>,
 }
 
 impl Internal for InternalServer {
@@ -197,17 +200,16 @@ impl Internal for InternalServer {
     }
 }
 
-fn propose_api<T, O, K>(
+fn propose_api<T, K>(
     network: &Addr<NetworkActor>,
-    proposal: RaftPropose<O, K>,
+    proposal: RaftPropose<K>,
     receiver: Receiver<T>,
     ctx: RpcContext,
     sink: UnarySink<T>,
 ) where
     T: Default + Debug + Send + 'static,
-    O: StateMachineObserver<K> + Send + 'static,
     K: RaftStateMachine + 'static,
-    NetworkActor: Handler<RaftPropose<O, K>>,
+    NetworkActor: Handler<RaftPropose<K>>,
 {
     let f = network
         .send(proposal)
@@ -216,17 +218,16 @@ fn propose_api<T, O, K>(
     future_to_sink(f, ctx, sink);
 }
 
-fn propose_api_result<T, O, K>(
+fn propose_api_result<T, K>(
     network: &Addr<NetworkActor>,
-    proposal: RaftPropose<O, K>,
+    proposal: RaftPropose<K>,
     receiver: Receiver<Result<T, Error>>,
     ctx: RpcContext,
     sink: UnarySink<T>,
 ) where
     T: Default + Debug + Send + 'static,
-    O: StateMachineObserver<K> + Send + 'static,
     K: RaftStateMachine + 'static,
-    NetworkActor: Handler<RaftPropose<O, K>>,
+    NetworkActor: Handler<RaftPropose<K>>,
 {
     let f = network
         .send(proposal)
@@ -263,24 +264,8 @@ pub struct NetworkActor {
 }
 
 #[derive(Message)]
-#[rtype(result = "Result<(), Error>")]
-struct ConnectToPeer {
-    address: String,
-}
-
-#[derive(Message)]
-struct ServerStarted {
-    server: Server,
-}
-
-#[derive(Message)]
-pub struct RaftGroupStarted<T>
-where
-    T: RaftStateMachine + 'static,
-    NetworkActor: Handler<RaftGroupStarted<T>>,
-{
-    pub raft_group_id: u64,
-    pub raft_group: Addr<RaftClient<T>>,
+pub struct ServerStarted {
+    pub server: Server,
 }
 
 #[derive(Message)]
@@ -291,31 +276,37 @@ pub struct CreateIndex {
 
 const GLOBAL_RAFT_ID: u64 = 0;
 
+pub fn start_rpc_server(
+    network: Addr<NetworkActor>,
+    kv_raft_router: &RaftRouter<KeyValueStateMachine>,
+    search_raft_router: &RaftRouter<SearchStateMachine>,
+    node_id: u64,
+    port: u16,
+) -> Result<Server, Error> {
+    let service = create_internal(InternalServer {
+        peer_id: node_id,
+        network,
+        kv_raft_router: kv_raft_router.clone(),
+        search_raft_router: search_raft_router.clone(),
+    });
+    let env = Arc::new(EnvBuilder::new().build());
+    let mut server = ServerBuilder::new(env)
+        .register_service(service)
+        .bind("127.0.0.1", port)
+        .build()?;
+    server.start();
+    info!("RPC Server started");
+    Ok(server)
+}
+
 impl NetworkActor {
-    fn new(peer_id: u64) -> Self {
+    pub fn new(peer_id: u64) -> Self {
         Self {
             peer_id: peer_id,
             server: None,
             kv_raft_groups: HashMap::new(),
             search_raft_groups: HashMap::new(),
         }
-    }
-
-    pub fn start(peer_id: u64, port: u16) -> Result<Addr<Self>, Error> {
-        let addr = Self::new(peer_id).start();
-        let service = create_internal(InternalServer {
-            peer_id: peer_id,
-            network: addr.clone(),
-        });
-        let env = Arc::new(EnvBuilder::new().build());
-        let mut server = ServerBuilder::new(env)
-            .register_service(service)
-            .bind("127.0.0.1", port)
-            .build()?;
-        server.start();
-        addr.try_send(ServerStarted { server }).expect("init");
-        info!("RPC Server started");
-        Ok(addr)
     }
 
     fn global_raft(&self) -> Option<&Addr<RaftClient<KeyValueStateMachine>>> {
@@ -363,15 +354,12 @@ impl Handler<RaftMessageReceived> for NetworkActor {
     }
 }
 
-impl<O> Handler<RaftPropose<O, KeyValueStateMachine>> for NetworkActor
-where
-    O: StateMachineObserver<KeyValueStateMachine> + Send + 'static,
-{
+impl Handler<RaftPropose<KeyValueStateMachine>> for NetworkActor {
     type Result = ResponseFuture<(), Error>;
 
     fn handle(
         &mut self,
-        message: RaftPropose<O, KeyValueStateMachine>,
+        message: RaftPropose<KeyValueStateMachine>,
         _ctx: &mut Context<Self>,
     ) -> Self::Result {
         let maybe_global = self.global_raft();
@@ -384,15 +372,12 @@ where
     }
 }
 
-impl<O> Handler<RaftPropose<O, SearchStateMachine>> for NetworkActor
-where
-    O: StateMachineObserver<SearchStateMachine> + Send + 'static,
-{
+impl Handler<RaftPropose<SearchStateMachine>> for NetworkActor {
     type Result = ResponseFuture<(), Error>;
 
     fn handle(
         &mut self,
-        message: RaftPropose<O, SearchStateMachine>,
+        message: RaftPropose<SearchStateMachine>,
         _ctx: &mut Context<Self>,
     ) -> Self::Result {
         let maybe_group = self.search_raft_groups.get(&message.raft_group_id);
@@ -403,27 +388,5 @@ where
         debug!("[group-{}] Proposal!", message.raft_group_id);
         let f = group.send(message).flatten();
         Box::new(f)
-    }
-}
-
-impl Handler<RaftGroupStarted<KeyValueStateMachine>> for NetworkActor {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        message: RaftGroupStarted<KeyValueStateMachine>,
-        _ctx: &mut Context<Self>,
-    ) {
-        self.kv_raft_groups
-            .insert(message.raft_group_id, message.raft_group);
-    }
-}
-
-impl Handler<RaftGroupStarted<SearchStateMachine>> for NetworkActor {
-    type Result = ();
-
-    fn handle(&mut self, message: RaftGroupStarted<SearchStateMachine>, _ctx: &mut Context<Self>) {
-        self.search_raft_groups
-            .insert(message.raft_group_id, message.raft_group);
     }
 }

@@ -1,6 +1,7 @@
-use crate::network::{NetworkActor, RaftGroupStarted};
+use crate::network::NetworkActor;
 use crate::node_router::NodeRouterHandle;
 use crate::proto::EntryContext;
+use crate::raft_router::RaftRouter;
 use crate::raft_storage::RaftStorage;
 use crate::storage_engine::MessageWriteBatch;
 use actix::prelude::*;
@@ -28,13 +29,17 @@ struct RaftState<T> {
     node_id: u64,
     raft_group_id: u64,
     leader_id: u64,
-    observers: HashMap<u64, Box<StateMachineObserver<T>>>,
+    observers: HashMap<u64, Box<StateMachineObserver<T> + Send + Sync + 'static>>,
 }
 
-pub struct RaftClient<T> {
+pub struct RaftClient<T>
+where
+    T: RaftStateMachine + 'static,
+{
     tick_interval: Duration,
     state: Rc<RefCell<RaftState<T>>>,
     network: Addr<NetworkActor>,
+    raft_router: RaftRouter<T>,
 }
 
 #[derive(Message)]
@@ -73,30 +78,35 @@ where
 
 #[derive(Message)]
 #[rtype(result = "Result<(), Error>")]
-pub struct RaftPropose<O, S>
+pub struct RaftPropose<S>
 where
     S: RaftStateMachine,
-    O: StateMachineObserver<S>,
 {
     pub raft_group_id: u64,
     pub entry: <S as RaftStateMachine>::EntryType,
-    pub observer: O,
+    pub observer: Box<dyn StateMachineObserver<S> + Send + Sync>,
 }
 
-impl<O, S> RaftPropose<O, S>
+impl<S> RaftPropose<S>
 where
     S: RaftStateMachine,
-    O: StateMachineObserver<S>,
 {
-    pub fn new(entry: S::EntryType, observer: O) -> Self {
+    pub fn new(
+        entry: S::EntryType,
+        observer: impl StateMachineObserver<S> + Send + Sync + 'static,
+    ) -> Self {
         Self::new_for_group(0, entry, observer)
     }
 
-    pub fn new_for_group(raft_group_id: u64, entry: S::EntryType, observer: O) -> Self {
+    pub fn new_for_group(
+        raft_group_id: u64,
+        entry: S::EntryType,
+        observer: impl StateMachineObserver<S> + Send + Sync + 'static,
+    ) -> Self {
         Self {
             raft_group_id,
             entry,
-            observer,
+            observer: Box::new(observer),
         }
     }
 }
@@ -126,7 +136,6 @@ pub trait RaftEntryHandler<T> {
 impl<T> RaftClient<T>
 where
     T: RaftStateMachine + 'static,
-    NetworkActor: Handler<RaftGroupStarted<T>>,
 {
     pub fn new(
         node_id: u64,
@@ -134,12 +143,14 @@ where
         state_machine: T,
         node_router: NodeRouterHandle,
         network: &Addr<NetworkActor>,
+        raft_router: &RaftRouter<T>,
     ) -> Result<Self, Error> {
         let state = RaftState::new(node_id, storage, state_machine, node_router)?;
         Ok(Self {
             tick_interval: Duration::from_millis(100),
             state: Rc::new(RefCell::new(state)),
             network: network.clone(),
+            raft_router: raft_router.clone(),
         })
     }
 
@@ -147,10 +158,7 @@ where
         self.state.borrow_mut().raft_tick()
     }
 
-    fn raft_propose_entry<O>(&self, m: RaftPropose<O, T>) -> Result<(), Error>
-    where
-        O: StateMachineObserver<T> + 'static,
-    {
+    fn raft_propose_entry(&self, m: RaftPropose<T>) -> Result<(), Error> {
         self.state.borrow_mut().propose_entry(m)
     }
 
@@ -244,16 +252,13 @@ where
         self.raft_node.propose(context, data).map_err(|e| e.into())
     }
 
-    fn propose_entry<O>(&mut self, m: RaftPropose<O, T>) -> Result<(), Error>
-    where
-        O: StateMachineObserver<T> + 'static,
-    {
+    fn propose_entry(&mut self, m: RaftPropose<T>) -> Result<(), Error> {
         let data = m.entry.write_to_bytes()?;
         let id = rand::random::<u64>();
         let mut ctx = EntryContext::new();
         ctx.id = id;
         let ctx_bytes = ctx.write_to_bytes()?;
-        self.observers.insert(id, Box::new(m.observer));
+        self.observers.insert(id, m.observer);
         let result = self.propose(ctx_bytes, data);
         if let Err(_) = result {
             self.observers.remove(&id);
@@ -384,22 +389,16 @@ where
 impl<T> Actor for RaftClient<T>
 where
     T: RaftStateMachine + 'static,
-    NetworkActor: Handler<RaftGroupStarted<T>>,
 {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Context<Self>) {
-        let message = RaftGroupStarted {
-            raft_group_id: self.state.borrow().raft_group_id,
-            raft_group: ctx.address(),
-        };
         let f = self
-            .network
-            .send(message)
-            .map_err(|err| error!("Failed to initialize raft: {:?}", err))
+            .raft_router
+            .register(self.state.borrow().raft_group_id, ctx.address())
+            .map_err(|_| ())
             .into_actor(self);
         ctx.spawn(f);
-
         self.schedule_next_tick(ctx);
     }
 }
@@ -407,7 +406,6 @@ where
 impl<T> Handler<TickMessage> for RaftClient<T>
 where
     T: RaftStateMachine + 'static,
-    NetworkActor: Handler<RaftGroupStarted<T>>,
 {
     type Result = Result<(), Error>;
 
@@ -418,15 +416,13 @@ where
     }
 }
 
-impl<O, T> Handler<RaftPropose<O, T>> for RaftClient<T>
+impl<T> Handler<RaftPropose<T>> for RaftClient<T>
 where
     T: RaftStateMachine + 'static,
-    O: StateMachineObserver<T> + 'static,
-    NetworkActor: Handler<RaftGroupStarted<T>>,
 {
     type Result = Result<(), Error>;
 
-    fn handle(&mut self, message: RaftPropose<O, T>, _ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, message: RaftPropose<T>, _ctx: &mut Context<Self>) -> Self::Result {
         self.raft_propose_entry(message)
     }
 }
@@ -434,7 +430,6 @@ where
 impl<T> Handler<RaftMessageReceived> for RaftClient<T>
 where
     T: RaftStateMachine + 'static,
-    NetworkActor: Handler<RaftGroupStarted<T>>,
 {
     type Result = Result<(), Error>;
 

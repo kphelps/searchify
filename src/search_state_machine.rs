@@ -4,7 +4,6 @@ use crate::raft::{FutureStateMachineObserver, RaftPropose, RaftStateMachine};
 use crate::search_storage::SearchStorage;
 use failure::Error;
 use futures::sync::oneshot::Sender;
-use futures::{future, Future};
 use std::path::Path;
 
 pub struct SearchStateMachine {
@@ -13,7 +12,7 @@ pub struct SearchStateMachine {
 }
 
 type SimpleObserver<T, F> = FutureStateMachineObserver<T, F>;
-type SimplePropose<T, F> = RaftPropose<SimpleObserver<T, F>, SearchStateMachine>;
+type SimplePropose = RaftPropose<SearchStateMachine>;
 
 impl RaftStateMachine for SearchStateMachine {
     type EntryType = SearchEntry;
@@ -43,7 +42,7 @@ impl SearchStateMachine {
     pub fn propose_add_document(
         mut request: IndexDocumentRequest,
         sender: Sender<IndexDocumentResponse>,
-    ) -> SimplePropose<IndexDocumentResponse, impl FnOnce(&Self) -> IndexDocumentResponse> {
+    ) -> SimplePropose {
         let mut entry = SearchEntry::new();
         let mut operation = AddDocumentOperation::new();
         operation.set_payload(request.take_payload());
@@ -55,10 +54,7 @@ impl SearchStateMachine {
     pub fn search(
         request: SearchRequest,
         sender: Sender<Result<SearchResponse, Error>>,
-    ) -> SimplePropose<
-        Result<SearchResponse, Error>,
-        impl FnOnce(&Self) -> Result<SearchResponse, Error>,
-    > {
+    ) -> SimplePropose {
         let entry = SearchEntry::new();
         let shard_id = request.shard_id;
         // TODO: This should go through the leaseholder and avoid raft altogether

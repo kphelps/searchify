@@ -46,7 +46,7 @@ impl RaftStateMachine for KeyValueStateMachine {
 }
 
 type SimpleObserver<T, F> = FutureStateMachineObserver<T, F>;
-type SimplePropose<T, F> = RaftPropose<SimpleObserver<T, F>, KeyValueStateMachine>;
+type SimplePropose = RaftPropose<KeyValueStateMachine>;
 
 impl KeyValueStateMachine {
     fn set(&mut self, key_value: KeyValue) -> Result<(), Error> {
@@ -162,32 +162,24 @@ impl KeyValueStateMachine {
         Ok(self.shards.get_shards_assigned_to_node(node))
     }
 
-    pub fn propose_set(
-        key_value: KeyValue,
-        sender: Sender<EmptyResponse>,
-    ) -> SimplePropose<EmptyResponse, impl FnOnce(&Self) -> EmptyResponse> {
+    pub fn propose_set(key_value: KeyValue, sender: Sender<EmptyResponse>) -> SimplePropose {
         let mut entry = KeyValueEntry::new();
         entry.set_set(key_value);
         let observer = SimpleObserver::new(sender, |_: &KeyValueStateMachine| EmptyResponse::new());
         SimplePropose::new(entry, observer)
     }
 
-    pub fn read_operation<F, R>(
-        sender: Sender<R>,
-        f: F,
-    ) -> SimplePropose<R, impl FnOnce(&Self) -> R>
+    pub fn read_operation<F, R>(sender: Sender<R>, f: F) -> SimplePropose
     where
-        F: FnOnce(&Self) -> R,
+        F: FnOnce(&Self) -> R + Send + Sync + 'static,
+        R: Send + Sync + 'static,
     {
         let entry = KeyValueEntry::new();
         let observer = SimpleObserver::new(sender, f);
         SimplePropose::new(entry, observer)
     }
 
-    pub fn propose_get(
-        key: Key,
-        sender: Sender<KeyValue>,
-    ) -> SimplePropose<KeyValue, impl FnOnce(&Self) -> KeyValue> {
+    pub fn propose_get(key: Key, sender: Sender<KeyValue>) -> SimplePropose {
         Self::read_operation(sender, move |sm| {
             let value = sm.get(&key.key);
             let mut kv = KeyValue::new();
@@ -203,7 +195,7 @@ impl KeyValueStateMachine {
     pub fn propose_create_index(
         request: CreateIndexRequest,
         sender: Sender<CreateIndexResponse>,
-    ) -> SimplePropose<CreateIndexResponse, impl FnOnce(&Self) -> CreateIndexResponse> {
+    ) -> SimplePropose {
         let mut entry = KeyValueEntry::new();
         entry.set_create_index(request);
         let observer = SimpleObserver::new(sender, move |_: &KeyValueStateMachine| {
@@ -217,7 +209,7 @@ impl KeyValueStateMachine {
     pub fn propose_delete_index(
         request: DeleteIndexRequest,
         sender: Sender<EmptyResponse>,
-    ) -> SimplePropose<EmptyResponse, impl FnOnce(&Self) -> EmptyResponse> {
+    ) -> SimplePropose {
         let mut entry = KeyValueEntry::new();
         entry.set_delete_index(request);
         let observer = SimpleObserver::new(sender, |_: &KeyValueStateMachine| EmptyResponse::new());
@@ -227,7 +219,7 @@ impl KeyValueStateMachine {
     pub fn propose_heartbeat(
         mut request: HeartbeatRequest,
         sender: Sender<EmptyResponse>,
-    ) -> SimplePropose<EmptyResponse, impl FnOnce(&Self) -> EmptyResponse> {
+    ) -> SimplePropose {
         let mut entry = KeyValueEntry::new();
         let mut heartbeat = LivenessHeartbeat::new();
         heartbeat.set_peer(request.take_peer());
