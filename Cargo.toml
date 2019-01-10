@@ -26,6 +26,7 @@ serde_json = "*"
 tantivy = "*"
 tokio = "*"
 tokio-retry = "*"
+tokio-signal = "*"
 tokio-timer = "*"
 uuid = "*"
 

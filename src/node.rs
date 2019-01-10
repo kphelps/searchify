@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::key_value_state_machine::KeyValueStateMachine;
-use crate::network::{start_rpc_server, NetworkActor, ServerStarted};
+use crate::network::start_rpc_server;
 use crate::node_router::NodeRouter;
 use crate::proto::{RaftGroupMetaState, RaftGroupType};
 use crate::raft::RaftClient;
@@ -14,40 +14,53 @@ use crate::storage_engine::StorageEngine;
 use crate::web::start_web;
 use actix::prelude::*;
 use failure::Error;
-use futures::{future, sync::oneshot};
+use futures::{future, prelude::*, sync::oneshot};
+use grpcio::Server;
+use log::*;
 use protobuf::parse_from_bytes;
 use std::path::Path;
+use tokio_signal::unix::{Signal, SIGINT, SIGTERM};
 
-#[allow(dead_code)]
-pub struct System {
-    // TODO
-    shutdown_signal: oneshot::Sender<()>,
+struct Inner {
+    server: Server,
 }
 
-pub fn run(config: &Config) -> Result<System, Error> {
+pub fn run(config: &Config) -> Result<(), Error> {
     let config = config.clone();
-    let (sender, _receiver) = oneshot::channel();
-    tokio::run(future::lazy(move || build_system(&config).map_err(|_| ())));
-    Ok(System {
-        shutdown_signal: sender,
-    })
+    let (sender, receiver) = oneshot::channel();
+    let mut rt = tokio::runtime::Runtime::new()?;
+
+    let signal_handler = Signal::new(SIGINT)
+        .flatten_stream()
+        .select(Signal::new(SIGTERM).flatten_stream())
+        .into_future()
+        .map_err(|_| ())
+        .and_then(move |_| sender.send(()))
+        .map_err(|_| ());
+
+    rt.spawn(signal_handler);
+    let result = rt.block_on(future::lazy(move || run_system(&config, receiver)));
+    rt.shutdown_now();
+
+    result
 }
 
-fn build_system(config: &Config) -> Result<(), Error> {
+fn run_system(
+    config: &Config,
+    shutdown_signal: oneshot::Receiver<()>,
+) -> impl Future<Item = (), Error = Error> {
+    future::result(build_system(config))
+        .and_then(move |inner| shutdown_signal.map(|_| inner).from_err())
+        .map(|_| info!("System shutdown."))
+}
+
+fn build_system(config: &Config) -> Result<Inner, Error> {
     let storage_root = Path::new(&config.storage_root);
     let storage_engine = StorageEngine::new(&storage_root.join("cluster"))?;
     init_node(&config.master_ids, &storage_engine)?;
 
     let kv_raft_router = RaftRouter::<KeyValueStateMachine>::new(config.node_id);
     let search_raft_router = RaftRouter::<SearchStateMachine>::new(config.node_id);
-    let network = NetworkActor::new().start();
-    let server = start_rpc_server(
-        &kv_raft_router,
-        &search_raft_router,
-        config.node_id,
-        config.port,
-    )?;
-    let _ = network.try_send(ServerStarted { server });
 
     let node_router = NodeRouter::start(&config)?;
     let group_states = get_raft_groups(&storage_engine)?;
@@ -68,10 +81,16 @@ fn build_system(config: &Config) -> Result<(), Error> {
         kv_state_machine,
         node_router.clone(),
         &kv_raft_router,
-    )?
-    .start();
-    start_web(config, node_router);
-    Ok(())
+    )?;
+    let server = start_rpc_server(
+        &kv_raft_router,
+        &search_raft_router,
+        config.node_id,
+        config.port,
+    )?;
+    // TODO
+    // start_web(config, node_router);
+    Ok(Inner { server })
 }
 
 fn init_node(master_ids: &[u64], engine: &StorageEngine) -> Result<(), Error> {

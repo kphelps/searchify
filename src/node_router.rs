@@ -2,7 +2,6 @@ use crate::config::Config;
 use crate::mappings::Mappings;
 use crate::proto::*;
 use crate::rpc_client::RpcClient;
-use actix::Arbiter;
 use failure::{err_msg, format_err, Error};
 use futures::{future, prelude::*};
 use log::*;
@@ -60,11 +59,11 @@ impl NodeRouter {
                 })
             })
             .map_err(|_| error!("Heartbeat task failed"));
-        Arbiter::spawn(heartbeat_task);
+        tokio::spawn(heartbeat_task);
 
         config.seeds.iter().for_each(|seed| {
             let peer_task = handle.connect_to_peer(seed).map_err(|_| ());
-            Arbiter::spawn(peer_task);
+            tokio::spawn(peer_task);
         });
 
         Ok(handle)

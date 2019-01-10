@@ -191,7 +191,7 @@ fn propose_api<T, K>(
     sink: UnarySink<T>,
 ) where
     T: Default + Debug + Send + 'static,
-    K: RaftStateMachine + 'static,
+    K: RaftStateMachine + Send + 'static,
 {
     let f = router.propose(proposal).and_then(|_| receiver.from_err());
     future_to_sink(f, ctx, sink);
@@ -205,7 +205,7 @@ fn propose_api_result<T, K>(
     sink: UnarySink<T>,
 ) where
     T: Default + Debug + Send + 'static,
-    K: RaftStateMachine + 'static,
+    K: RaftStateMachine + Send + 'static,
 {
     let f = router
         .propose(proposal)
@@ -233,17 +233,6 @@ where
     );
 }
 
-pub struct NetworkActor {
-    server: Option<Server>,
-}
-
-#[derive(Message)]
-pub struct ServerStarted {
-    pub server: Server,
-}
-
-const GLOBAL_RAFT_ID: u64 = 0;
-
 pub fn start_rpc_server(
     kv_raft_router: &RaftRouter<KeyValueStateMachine>,
     search_raft_router: &RaftRouter<SearchStateMachine>,
@@ -263,22 +252,4 @@ pub fn start_rpc_server(
     server.start();
     info!("RPC Server started");
     Ok(server)
-}
-
-impl NetworkActor {
-    pub fn new() -> Self {
-        Self { server: None }
-    }
-}
-
-impl Actor for NetworkActor {
-    type Context = Context<Self>;
-}
-
-impl Handler<ServerStarted> for NetworkActor {
-    type Result = ();
-
-    fn handle(&mut self, message: ServerStarted, _ctx: &mut Context<Self>) {
-        self.server = Some(message.server);
-    }
 }

@@ -6,7 +6,7 @@ use crate::storage_engine::MessageWriteBatch;
 use actix::prelude::*;
 use failure::Error;
 use futures::prelude::*;
-use futures::sync::oneshot::Sender;
+use futures::sync::{mpsc, oneshot};
 use log::*;
 use protobuf::{parse_from_bytes, Message};
 use raft::{
@@ -16,10 +16,10 @@ use raft::{
     Config,
 };
 use std::boxed::Box;
-use std::cell::RefCell;
+use std::clone::Clone;
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::time::Duration;
+use tokio::timer::Interval;
 
 struct RaftState<T> {
     state_machine: T,
@@ -31,13 +31,30 @@ struct RaftState<T> {
     observers: HashMap<u64, Box<StateMachineObserver<T> + Send + Sync + 'static>>,
 }
 
+enum RaftStateMessage<T>
+where
+    T: RaftStateMachine + 'static,
+{
+    Message(RaftMessageReceived),
+    Propose(RaftPropose<T>),
+}
+
 pub struct RaftClient<T>
 where
     T: RaftStateMachine + 'static,
 {
-    tick_interval: Duration,
-    state: Rc<RefCell<RaftState<T>>>,
-    raft_router: RaftRouter<T>,
+    sender: mpsc::Sender<RaftStateMessage<T>>,
+}
+
+impl<T> Clone for RaftClient<T>
+where
+    T: RaftStateMachine + 'static,
+{
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
+        }
+    }
 }
 
 #[derive(Message)]
@@ -49,12 +66,12 @@ pub trait StateMachineObserver<S> {
 }
 
 pub struct FutureStateMachineObserver<T, F> {
-    sender: Sender<T>,
+    sender: oneshot::Sender<T>,
     observe_impl: F,
 }
 
 impl<T, F> FutureStateMachineObserver<T, F> {
-    pub fn new(sender: Sender<T>, observe: F) -> Self {
+    pub fn new(sender: oneshot::Sender<T>, observe: F) -> Self {
         Self {
             sender,
             observe_impl: observe,
@@ -130,7 +147,7 @@ pub trait RaftEntryHandler<T> {
 
 impl<T> RaftClient<T>
 where
-    T: RaftStateMachine + 'static,
+    T: RaftStateMachine + Send + 'static,
 {
     pub fn new(
         node_id: u64,
@@ -139,38 +156,49 @@ where
         node_router: NodeRouterHandle,
         raft_router: &RaftRouter<T>,
     ) -> Result<Self, Error> {
+        let (sender, receiver) = mpsc::channel(128);
         let state = RaftState::new(node_id, storage, state_machine, node_router)?;
-        Ok(Self {
-            tick_interval: Duration::from_millis(100),
-            state: Rc::new(RefCell::new(state)),
-            raft_router: raft_router.clone(),
-        })
+        let group_id = state.raft_group_id;
+        state.run(receiver, Duration::from_millis(100));
+        let client = Self { sender };
+        client.register(group_id, raft_router);
+        Ok(client)
     }
 
-    fn raft_tick(&self) -> Result<(), Error> {
-        self.state.borrow_mut().raft_tick()
+    fn register(&self, raft_group_id: u64, raft_router: &RaftRouter<T>) {
+        let f = raft_router
+            .register(raft_group_id, self.clone())
+            .map_err(move |_| error!("Failed to register raft group '{}'", raft_group_id));
+        tokio::spawn(f);
     }
 
-    fn raft_propose_entry(&self, m: RaftPropose<T>) -> Result<(), Error> {
-        self.state.borrow_mut().propose_entry(m)
+    pub fn propose_entry(&self, m: RaftPropose<T>) -> impl Future<Item = (), Error = Error> {
+        self.send(RaftStateMessage::Propose(m))
     }
 
-    fn raft_step(&self, message: eraftpb::Message) -> Result<(), Error> {
-        self.state
-            .borrow_mut()
-            .raft_node
-            .step(message)
-            .map_err(|e| e.into())
+    pub fn receive_message(
+        &self,
+        message: RaftMessageReceived,
+    ) -> impl Future<Item = (), Error = Error> {
+        self.send(RaftStateMessage::Message(message))
     }
 
-    fn schedule_next_tick(&self, ctx: &mut Context<Self>) {
-        ctx.notify_later(TickMessage, self.tick_interval);
+    fn send(&self, event: RaftStateMessage<T>) -> impl Future<Item = (), Error = Error> {
+        self.sender.clone().send(event).map(|_| ()).from_err()
     }
+}
+
+enum StateEvent<T>
+where
+    T: RaftStateMachine + 'static,
+{
+    Tick,
+    Event(RaftStateMessage<T>),
 }
 
 impl<T> RaftState<T>
 where
-    T: RaftStateMachine + 'static,
+    T: RaftStateMachine + Send + 'static,
 {
     pub fn new(
         node_id: u64,
@@ -206,6 +234,28 @@ where
             state_machine,
             node_router,
         })
+    }
+
+    fn run(mut self, receiver: mpsc::Receiver<RaftStateMessage<T>>, tick_interval: Duration) {
+        let tick_stream = Interval::new_interval(tick_interval)
+            .map(|_| StateEvent::Tick)
+            .map_err(|err| error!("Error in raft tick loop: {:?}", err));
+        let message_stream = receiver.map(StateEvent::Event);
+        let f = message_stream.select(tick_stream).for_each(move |event| {
+            self.handle_event(event)
+                .map_err(|err| error!("Error handling raft event: {:?}", err))
+        });
+        tokio::spawn(f);
+    }
+
+    fn handle_event(&mut self, event: StateEvent<T>) -> Result<(), Error> {
+        match event {
+            StateEvent::Tick => self.raft_tick(),
+            StateEvent::Event(event) => match event {
+                RaftStateMessage::Message(message) => Ok(self.raft_node.step(message.message)?),
+                RaftStateMessage::Propose(proposal) => self.propose_entry(proposal),
+            },
+        }
     }
 
     fn raft_tick(&mut self) -> Result<(), Error> {
@@ -376,57 +426,5 @@ where
     fn compact(&mut self) -> Result<(), Error> {
         let raft_applied = self.raft_node.raft.raft_log.get_applied();
         self.raft_node.mut_store().compact(raft_applied)
-    }
-}
-
-impl<T> Actor for RaftClient<T>
-where
-    T: RaftStateMachine + 'static,
-{
-    type Context = Context<Self>;
-
-    fn started(&mut self, ctx: &mut Context<Self>) {
-        let f = self
-            .raft_router
-            .register(self.state.borrow().raft_group_id, ctx.address())
-            .map_err(|_| ())
-            .into_actor(self);
-        ctx.spawn(f);
-        self.schedule_next_tick(ctx);
-    }
-}
-
-impl<T> Handler<TickMessage> for RaftClient<T>
-where
-    T: RaftStateMachine + 'static,
-{
-    type Result = Result<(), Error>;
-
-    fn handle(&mut self, _: TickMessage, ctx: &mut Context<Self>) -> Self::Result {
-        let result = self.raft_tick();
-        self.schedule_next_tick(ctx);
-        result
-    }
-}
-
-impl<T> Handler<RaftPropose<T>> for RaftClient<T>
-where
-    T: RaftStateMachine + 'static,
-{
-    type Result = Result<(), Error>;
-
-    fn handle(&mut self, message: RaftPropose<T>, _ctx: &mut Context<Self>) -> Self::Result {
-        self.raft_propose_entry(message)
-    }
-}
-
-impl<T> Handler<RaftMessageReceived> for RaftClient<T>
-where
-    T: RaftStateMachine + 'static,
-{
-    type Result = Result<(), Error>;
-
-    fn handle(&mut self, message: RaftMessageReceived, _ctx: &mut Context<Self>) -> Self::Result {
-        self.raft_step(message.message)
     }
 }

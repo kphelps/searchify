@@ -56,7 +56,7 @@ impl IndexCoordinator {
             .from_err()
             .for_each(move |_| Self::poll_node_info(this.clone()))
             .map_err(|err| error!("Error in node polling loop: {:?}", err));
-        tokio::run(task);
+        tokio::spawn(task);
     }
 
     fn poll_node_info(this: Arc<Mutex<Self>>) -> impl Future<Item = (), Error = Error> {
@@ -86,6 +86,7 @@ impl IndexCoordinator {
             &self.config.search_storage_root(),
             &self.raft_router,
         )?;
+        info!("loaded");
         self.shards.insert(state.get_id(), shard);
         Ok(())
     }
