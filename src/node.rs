@@ -9,10 +9,8 @@ use crate::raft_storage::{
     init_raft_group, RaftStorage, LOCAL_PREFIX, RAFT_GROUP_META_PREFIX, RAFT_GROUP_META_PREFIX_KEY,
 };
 use crate::search::IndexCoordinator;
-use crate::search_state_machine::SearchStateMachine;
 use crate::storage_engine::StorageEngine;
-use crate::web::start_web;
-use actix::prelude::*;
+use crate::web::{HttpServer, start_web};
 use failure::Error;
 use futures::{future, prelude::*, sync::oneshot};
 use grpcio::Server;
@@ -23,6 +21,7 @@ use tokio_signal::unix::{Signal, SIGINT, SIGTERM};
 
 struct Inner {
     server: Server,
+    http_server: HttpServer
 }
 
 pub fn run(config: &Config) -> Result<(), Error> {
@@ -39,10 +38,7 @@ pub fn run(config: &Config) -> Result<(), Error> {
         .map_err(|_| ());
 
     rt.spawn(signal_handler);
-    let result = rt.block_on(future::lazy(move || run_system(&config, receiver)));
-    rt.shutdown_now();
-
-    result
+    rt.block_on_all(future::lazy(move || run_system(&config, receiver)))
 }
 
 fn run_system(
@@ -59,8 +55,8 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
     let storage_engine = StorageEngine::new(&storage_root.join("cluster"))?;
     init_node(&config.master_ids, &storage_engine)?;
 
-    let kv_raft_router = RaftRouter::<KeyValueStateMachine>::new(config.node_id);
-    let search_raft_router = RaftRouter::<SearchStateMachine>::new(config.node_id);
+    let kv_raft_router = RaftRouter::new();
+    let search_raft_router = RaftRouter::new();
 
     let node_router = NodeRouter::start(&config)?;
     let group_states = get_raft_groups(&storage_engine)?;
@@ -88,9 +84,8 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
         config.node_id,
         config.port,
     )?;
-    // TODO
-    // start_web(config, node_router);
-    Ok(Inner { server })
+    let http_server = start_web(config, node_router)?;
+    Ok(Inner { server, http_server })
 }
 
 fn init_node(master_ids: &[u64], engine: &StorageEngine) -> Result<(), Error> {

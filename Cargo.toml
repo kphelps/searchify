@@ -5,8 +5,6 @@ authors = ["Kyle Phelps <kphelps@salsify.com>"]
 edition = "2018"
 
 [dependencies]
-actix = "*"
-actix_derive = "*"
 actix-web = "*"
 byteorder = "*"
 clap = "*"
@@ -28,6 +26,7 @@ tokio = "*"
 tokio-retry = "*"
 tokio-signal = "*"
 tokio-timer = "*"
+tower-web = "*"
 uuid = "*"
 
 [dependencies.rocksdb]

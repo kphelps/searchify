@@ -6,18 +6,34 @@ use crate::search_state_machine::SearchStateMachine;
 use crate::shard::Shard;
 use crate::storage_engine::StorageEngine;
 use failure::Error;
-use futures::prelude::*;
+use futures::{
+    prelude::*,
+    future,
+    stream,
+    sync::mpsc,
+};
 use log::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub struct IndexCoordinator {
+    sender: mpsc::Sender<()>,
+}
+
+pub struct Inner {
     config: Config,
     node_router: NodeRouterHandle,
     raft_storage_engine: StorageEngine,
     shards: HashMap<u64, Shard>,
     raft_router: RaftRouter<SearchStateMachine>,
+}
+
+#[derive(Eq, PartialEq)]
+enum SearchEvent {
+    Event,
+    Poll,
+    Done,
 }
 
 impl IndexCoordinator {
@@ -27,8 +43,8 @@ impl IndexCoordinator {
         raft_storage_engine: StorageEngine,
         raft_group_states: &Vec<RaftGroupMetaState>,
         raft_router: &RaftRouter<SearchStateMachine>,
-    ) -> Result<(), Error> {
-        let mut coordinator = Self {
+    ) -> Result<Self, Error> {
+        let mut coordinator = Inner {
             config: config.clone(),
             node_router: node_router,
             raft_storage_engine,
@@ -46,17 +62,29 @@ impl IndexCoordinator {
                 }
             })
             .collect::<Result<(), Error>>()?;
-
-        Ok(coordinator.run())
+        let (sender, receiver) = mpsc::channel(256);
+        coordinator.run(receiver);
+        Ok(Self{ sender })
     }
+}
 
-    fn run(self) {
+impl Inner {
+    fn run(self, receiver: mpsc::Receiver<()>) {
         let this = Arc::new(Mutex::new(self));
-        let task = tokio::timer::Interval::new(Instant::now(), Duration::from_secs(5))
-            .from_err()
-            .for_each(move |_| Self::poll_node_info(this.clone()))
-            .map_err(|err| error!("Error in node polling loop: {:?}", err));
-        tokio::spawn(task);
+        let ticker = tokio::timer::Interval::new(Instant::now(), Duration::from_secs(5))
+            .map(|_| SearchEvent::Poll)
+            .map_err(|_| ());
+        let events = receiver
+            .map(|_| SearchEvent::Event)
+            .chain(stream::once(Ok(SearchEvent::Done)))
+            .select(ticker)
+            .take_while(|item| future::ok(*item != SearchEvent::Done));
+        let f = events.for_each(move |_| {
+            Self::poll_node_info(this.clone())
+                .map_err(|err| warn!("Error in node polling loop: {:?}", err))
+                .then(|_| Ok(()))
+        });
+        tokio::spawn(f);
     }
 
     fn poll_node_info(this: Arc<Mutex<Self>>) -> impl Future<Item = (), Error = Error> {

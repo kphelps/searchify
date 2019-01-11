@@ -1,7 +1,6 @@
 #+TODO: TODO DOING | DONE
 
 * Current Notes
-  * Removing actix because its terrible
   * Should split RPC into two services (KV and Search)
   * RaftRouter will replace NetworkActor
   * Need to replace RaftClient with another process

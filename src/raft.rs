@@ -3,10 +3,16 @@ use crate::proto::EntryContext;
 use crate::raft_router::RaftRouter;
 use crate::raft_storage::RaftStorage;
 use crate::storage_engine::MessageWriteBatch;
-use actix::prelude::*;
 use failure::Error;
-use futures::prelude::*;
-use futures::sync::{mpsc, oneshot};
+use futures::{
+    prelude::*,
+    future,
+    stream,
+    sync::{
+        mpsc,
+        oneshot,
+    },
+};
 use log::*;
 use protobuf::{parse_from_bytes, Message};
 use raft::{
@@ -57,10 +63,6 @@ where
     }
 }
 
-#[derive(Message)]
-#[rtype(result = "Result<(), Error>")]
-struct TickMessage;
-
 pub trait StateMachineObserver<S> {
     fn observe(self: Box<Self>, state_machine: &S);
 }
@@ -91,8 +93,6 @@ where
     }
 }
 
-#[derive(Message)]
-#[rtype(result = "Result<(), Error>")]
 pub struct RaftPropose<S>
 where
     S: RaftStateMachine,
@@ -126,8 +126,6 @@ where
     }
 }
 
-#[derive(Message)]
-#[rtype(result = "Result<(), Error>")]
 pub struct RaftMessageReceived {
     pub raft_group_id: u64,
     pub message: eraftpb::Message,
@@ -159,7 +157,7 @@ where
         let (sender, receiver) = mpsc::channel(128);
         let state = RaftState::new(node_id, storage, state_machine, node_router)?;
         let group_id = state.raft_group_id;
-        state.run(receiver, Duration::from_millis(100));
+        state.run(receiver, Duration::from_millis(200));
         let client = Self { sender };
         client.register(group_id, raft_router);
         Ok(client)
@@ -194,6 +192,19 @@ where
 {
     Tick,
     Event(RaftStateMessage<T>),
+    Done,
+}
+
+impl<T> StateEvent<T>
+where
+    T: RaftStateMachine + 'static,
+{
+    fn is_done(&self) -> bool {
+        match self {
+            StateEvent::Done => true,
+            _ => false,
+        }
+    }
 }
 
 impl<T> RaftState<T>
@@ -240,12 +251,18 @@ where
         let tick_stream = Interval::new_interval(tick_interval)
             .map(|_| StateEvent::Tick)
             .map_err(|err| error!("Error in raft tick loop: {:?}", err));
-        let message_stream = receiver.map(StateEvent::Event);
-        let f = message_stream.select(tick_stream).for_each(move |event| {
-            self.handle_event(event)
-                .map_err(|err| error!("Error handling raft event: {:?}", err))
+        let message_stream = receiver
+            .map(StateEvent::Event)
+            .chain(stream::once(Ok(StateEvent::Done)))
+            .select(tick_stream)
+            .take_while(|item| future::ok(!item.is_done()));
+        let f = message_stream.for_each(move |event| {
+            if let Err(err) = self.handle_event(event) {
+                debug!("Raft event failure: {:?}", err)
+            }
+            Ok(())
         });
-        tokio::spawn(f);
+        tokio::spawn(f.then(|_| Ok(())));
     }
 
     fn handle_event(&mut self, event: StateEvent<T>) -> Result<(), Error> {
@@ -255,6 +272,7 @@ where
                 RaftStateMessage::Message(message) => Ok(self.raft_node.step(message.message)?),
                 RaftStateMessage::Propose(proposal) => self.propose_entry(proposal),
             },
+            StateEvent::Done => unreachable!(),
         }
     }
 
@@ -347,7 +365,7 @@ where
                 .node_router
                 .route_raft_message(message, self.raft_group_id)
                 .map_err(|e| debug!("Error sending raft message: {}", e));
-            Arbiter::spawn(f);
+            tokio::spawn(f);
         }
     }
 

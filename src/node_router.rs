@@ -3,12 +3,12 @@ use crate::mappings::Mappings;
 use crate::proto::*;
 use crate::rpc_client::RpcClient;
 use failure::{err_msg, format_err, Error};
-use futures::{future, prelude::*};
+use futures::{future, prelude::*, sync::oneshot};
 use log::*;
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
-    Arc, RwLock,
+    Arc, RwLock, Mutex,
 };
 use std::time::Duration;
 use tokio_retry::{
@@ -21,6 +21,7 @@ pub struct NodeRouter {
     node_id: u64,
     peers: Arc<RwLock<HashMap<u64, RpcClient>>>,
     leader_id: AtomicUsize,
+    tasks: Arc<Mutex<Vec<oneshot::Sender<()>>>>,
 }
 
 #[derive(Clone)]
@@ -40,6 +41,7 @@ impl NodeRouter {
             node_id: config.node_id,
             peers: Arc::new(RwLock::new(clients)),
             leader_id: AtomicUsize::new(0),
+            tasks: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -49,28 +51,34 @@ impl NodeRouter {
             handle: Arc::new(router),
         };
 
-        let heartbeat_handle = handle.clone();
+        let heartbeat_handle = Arc::downgrade(&handle.handle);
         let heartbeat_task = Interval::new_interval(Duration::from_secs(5))
-            .from_err::<Error>()
+            .map_err(|_| ())
             .for_each(move |_| {
-                heartbeat_handle.send_heartbeat().or_else(|err| {
-                    warn!("Error sending heartbeat: {:?}", err);
-                    Ok(())
-                })
-            })
-            .map_err(|_| error!("Heartbeat task failed"));
-        tokio::spawn(heartbeat_task);
+                heartbeat_handle
+                    .upgrade()
+                    .ok_or(())
+                    .into_future()
+                    .and_then(|handle| handle.send_heartbeat().then(|_| Ok(())))
+            });
+        let t = heartbeat_task.select(handle.handle.task().map_err(|_| ()));
+        tokio::spawn(t.then(|_| Ok(())));
 
         config.seeds.iter().for_each(|seed| {
-            let peer_task = handle.connect_to_peer(seed).map_err(|_| ());
+            let peer_task = handle.connect_to_peer(seed);
             tokio::spawn(peer_task);
         });
 
         Ok(handle)
     }
 
-    // TODO: Retry indefinitely
-    pub fn connect_to_peer(&self, peer_address: &str) -> impl Future<Item = (), Error = Error> {
+    fn task(&self) -> oneshot::Receiver<()> {
+        let (sender, receiver) = oneshot::channel();
+        self.tasks.lock().unwrap().push(sender);
+        receiver
+    }
+
+    pub fn connect_to_peer(&self, peer_address: &str) -> impl Future<Item = (), Error = ()> {
         let peers = self.peers.clone();
         let client = RpcClient::new(self.node_id, peer_address);
         let f = move || {
@@ -85,8 +93,9 @@ impl NodeRouter {
             .max_delay(Duration::from_secs(10))
             .map(jitter);
         Retry::spawn(retry_strategy, f)
-            .map(|_| ())
-            .map_err(|err| format_err!("Connect retry failed: {:?}", err))
+            .map_err(|err| error!("Connect retry failed: {:?}", err))
+            .select(self.task().map_err(|_| ()))
+            .then(|_| Ok(()))
     }
 
     pub fn route_raft_message(

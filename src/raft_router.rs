@@ -4,7 +4,6 @@ use futures::{future, prelude::*, sync::mpsc};
 use log::*;
 use std::clone::Clone;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 pub struct RaftRouter<K>
 where
@@ -37,7 +36,6 @@ struct Inner<K>
 where
     K: RaftStateMachine + 'static,
 {
-    node_id: u64,
     raft_groups: HashMap<u64, RaftClient<K>>,
 }
 
@@ -45,9 +43,9 @@ impl<K> RaftRouter<K>
 where
     K: RaftStateMachine + Send + 'static,
 {
-    pub fn new(node_id: u64) -> Self {
+    pub fn new() -> Self {
         let (sender, receiver) = mpsc::channel(4096);
-        let inner = Inner::new(node_id);
+        let inner = Inner::new();
         inner.run(receiver);
         Self { sender }
     }
@@ -76,9 +74,8 @@ impl<K> Inner<K>
 where
     K: RaftStateMachine + Send,
 {
-    fn new(node_id: u64) -> Self {
+    fn new() -> Self {
         Self {
-            node_id,
             raft_groups: HashMap::new(),
         }
     }
@@ -98,6 +95,7 @@ where
             RaftRouterEvent::Propose(propose) => Box::new(self.handle_raft_propose(propose)),
         };
         f.map_err(|err| error!("Error routing raft event: {:?}", err))
+            .then(|_| Ok(()))
     }
 
     fn add_group(

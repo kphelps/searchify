@@ -8,7 +8,6 @@ use crate::raft_storage::{init_raft_group, RaftStorage};
 use crate::search_state_machine::SearchStateMachine;
 use crate::storage_engine::StorageEngine;
 use failure::{format_err, Error};
-use log::*;
 use std::path::Path;
 
 type RaftStateCell = CachedPersistentCell<RaftGroupMetaState>;
@@ -50,15 +49,10 @@ impl Shard {
             .get()
             .ok_or(format_err!("Shard does not exist: {}", id))?;
 
-        info!("init storage");
         let storage_path = Path::new(storage_root).join(id.to_string());
         let mappings = serde_json::from_str(shard_state.get_mappings())?;
-        info!("mappings loaded");
         let state_machine = SearchStateMachine::new(id, storage_path, mappings)?;
-        info!("state machine loaded");
-
         let raft_storage = RaftStorage::new(group_state.clone(), raft_storage_engine.clone())?;
-        info!("start raft");
         let raft = RaftClient::new(
             node_id,
             raft_storage,
@@ -73,7 +67,6 @@ impl Shard {
             _raft: raft,
         };
 
-        info!("done");
         Ok(shard)
     }
 

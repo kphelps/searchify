@@ -4,7 +4,6 @@ use crate::proto::*;
 use crate::raft::{RaftMessageReceived, RaftPropose, RaftStateMachine};
 use crate::raft_router::RaftRouter;
 use crate::search_state_machine::SearchStateMachine;
-use actix::prelude::*;
 use failure::{err_msg, Error};
 use futures::{
     prelude::*,
