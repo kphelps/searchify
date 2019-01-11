@@ -9,7 +9,6 @@
   
 ** High Priority
 
-  - Remove `actix` (single threaded is going to be problematic)
   - Gossip infrastructure
     - Cache shard routing table
     - Broadcast member list
@@ -19,7 +18,6 @@
 
 ** Everything else
    
-  - Consider switching out actix-web for something else
   - Leaseholders
     - https://github.com/cockroachdb/cockroach/blob/master/docs/design.md#range-leases
   - Cluster health (i.e. are we under replicated? are we available?)

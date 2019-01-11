@@ -123,6 +123,10 @@ where
         &self,
         message: RaftPropose<K>,
     ) -> impl Future<Item = (), Error = Error> + Send {
+        info!(
+            "[group-{}] Proposal {:?}",
+            message.raft_group_id, message.entry
+        );
         self.get_group(message.raft_group_id)
             .and_then(move |raft| raft.propose_entry(message))
     }

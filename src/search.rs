@@ -29,7 +29,7 @@ pub struct Inner {
     raft_router: RaftRouter<SearchStateMachine>,
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 enum SearchEvent {
     Event,
     Poll,
@@ -84,7 +84,7 @@ impl Inner {
                 .map_err(|err| warn!("Error in node polling loop: {:?}", err))
                 .then(|_| Ok(()))
         });
-        tokio::spawn(f);
+        tokio::spawn(f.then(|_| Ok(info!("Shard polling stopped"))));
     }
 
     fn poll_node_info(this: Arc<Mutex<Self>>) -> impl Future<Item = (), Error = Error> {

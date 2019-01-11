@@ -20,8 +20,9 @@ use std::path::Path;
 use tokio_signal::unix::{Signal, SIGINT, SIGTERM};
 
 struct Inner {
-    server: Server,
-    http_server: HttpServer
+    _server: Server,
+    _http_server: HttpServer,
+    _index_coordinator: IndexCoordinator,
 }
 
 pub fn run(config: &Config) -> Result<(), Error> {
@@ -60,7 +61,7 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
 
     let node_router = NodeRouter::start(&config)?;
     let group_states = get_raft_groups(&storage_engine)?;
-    IndexCoordinator::start(
+    let index_coordinator = IndexCoordinator::start(
         &config,
         node_router.clone(),
         storage_engine.clone(),
@@ -85,7 +86,11 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
         config.port,
     )?;
     let http_server = start_web(config, node_router)?;
-    Ok(Inner { server, http_server })
+    Ok(Inner {
+        _server: server,
+        _http_server: http_server,
+        _index_coordinator: index_coordinator,
+    })
 }
 
 fn init_node(master_ids: &[u64], engine: &StorageEngine) -> Result<(), Error> {
@@ -114,7 +119,7 @@ mod test {
     use tempfile;
 
     fn config_for_node(node_id: u64) -> Config {
-        std::env::set_var("RUST_LOG", "searchify=info,actix_web=info,raft=debug");
+        std::env::set_var("RUST_LOG", "searchify=info,raft=debug");
         let _ = env_logger::try_init();
         let mut config = Config::default().unwrap();
         let dir = tempfile::tempdir().unwrap();
