@@ -92,7 +92,7 @@ impl Internal for InternalServer {
         let (sender, receiver) = channel();
         let proposal = KeyValueStateMachine::read_operation(sender, move |sm| {
             sm.index(&req.name)
-                .and_then(|option| option.ok_or(err_msg("Not found")))
+                .and_then(|option| option.ok_or_else(|| err_msg("Not found")))
         });
         propose_api_result(&self.kv_raft_router, proposal, receiver, ctx, sink);
     }

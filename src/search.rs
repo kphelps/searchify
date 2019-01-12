@@ -6,19 +6,14 @@ use crate::search_state_machine::SearchStateMachine;
 use crate::shard::Shard;
 use crate::storage_engine::StorageEngine;
 use failure::Error;
-use futures::{
-    prelude::*,
-    future,
-    stream,
-    sync::mpsc,
-};
+use futures::{future, prelude::*, stream, sync::mpsc};
 use log::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub struct IndexCoordinator {
-    sender: mpsc::Sender<()>,
+    _sender: mpsc::Sender<()>,
 }
 
 pub struct Inner {
@@ -41,12 +36,12 @@ impl IndexCoordinator {
         config: &Config,
         node_router: NodeRouterHandle,
         raft_storage_engine: StorageEngine,
-        raft_group_states: &Vec<RaftGroupMetaState>,
+        raft_group_states: &[RaftGroupMetaState],
         raft_router: &RaftRouter<SearchStateMachine>,
     ) -> Result<Self, Error> {
         let mut coordinator = Inner {
             config: config.clone(),
-            node_router: node_router,
+            node_router,
             raft_storage_engine,
             shards: HashMap::new(),
             raft_router: raft_router.clone(),
@@ -64,7 +59,7 @@ impl IndexCoordinator {
             .collect::<Result<(), Error>>()?;
         let (sender, receiver) = mpsc::channel(256);
         coordinator.run(receiver);
-        Ok(Self{ sender })
+        Ok(Self { _sender: sender })
     }
 }
 
@@ -84,7 +79,10 @@ impl Inner {
                 .map_err(|err| warn!("Error in node polling loop: {:?}", err))
                 .then(|_| Ok(()))
         });
-        tokio::spawn(f.then(|_| Ok(info!("Shard polling stopped"))));
+        tokio::spawn(f.then(|_| {
+            info!("Shard polling stopped");
+            Ok(())
+        }));
     }
 
     fn poll_node_info(this: Arc<Mutex<Self>>) -> impl Future<Item = (), Error = Error> {

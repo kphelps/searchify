@@ -10,7 +10,7 @@ use futures::sync::oneshot::Sender;
 use log::info;
 
 pub struct KeyValueStateMachine {
-    engine: StorageEngine,
+    _engine: StorageEngine,
     nodes: CachedPersistentMap<u64, PeerState>,
     indices: IndexTracker,
     shards: ShardTracker,
@@ -19,7 +19,7 @@ pub struct KeyValueStateMachine {
 impl KeyValueStateMachine {
     pub fn new(engine: StorageEngine) -> Result<Self, Error> {
         Ok(Self {
-            engine: engine.clone(),
+            _engine: engine.clone(),
             nodes: CachedPersistentMap::new(&engine, KeySpace::Peer.as_key())?,
             indices: IndexTracker::new(&engine)?,
             shards: ShardTracker::new(&engine)?,
@@ -31,7 +31,7 @@ impl RaftStateMachine for KeyValueStateMachine {
     type EntryType = KeyValueEntry;
 
     fn apply(&mut self, entry: KeyValueEntry) -> Result<(), Error> {
-        if let None = entry.entry {
+        if entry.entry.is_none() {
             return Ok(());
         }
 

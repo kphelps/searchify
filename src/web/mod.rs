@@ -3,20 +3,11 @@ use crate::mappings::Mappings;
 use crate::node_router::NodeRouterHandle;
 use crate::query_api::SearchQuery;
 use failure::Error;
-use futures::{
-    prelude::*,
-    sync::oneshot,
-};
+use futures::{prelude::*, sync::oneshot};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
 use tokio::net::TcpListener;
-use tower_web::{
-    Response, ServiceBuilder,
-    extract::{Context, Extract, Immediate},
-    util::BufStream,
-    *,
-};
-use serde_derive::*;
+use tower_web::*;
 
 pub struct HttpServer {
     _handle: oneshot::Sender<()>,
@@ -50,16 +41,14 @@ struct SearchRequest {
 }
 
 #[derive(Response)]
-struct SearchResponse {
-}
+struct SearchResponse {}
 
 #[derive(Response)]
 struct IndexDocumentResponse {}
 
 #[derive(Response)]
 #[web(status = "204")]
-struct DeletedResponse {
-}
+struct DeletedResponse {}
 
 #[derive(Serialize)]
 struct Index {
@@ -149,7 +138,7 @@ pub fn start_web(config: &Config, node_router: NodeRouterHandle) -> Result<HttpS
 
     let f = ServiceBuilder::new()
         .middleware(tower_web::middleware::log::LogMiddleware::new("searchify"))
-        .resource(HelloWorld{ node_router })
+        .resource(HelloWorld { node_router })
         .serve(listener.incoming());
 
     let (sender, receiver) = oneshot::channel();

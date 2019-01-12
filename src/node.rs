@@ -10,7 +10,7 @@ use crate::raft_storage::{
 };
 use crate::search::IndexCoordinator;
 use crate::storage_engine::StorageEngine;
-use crate::web::{HttpServer, start_web};
+use crate::web::{start_web, HttpServer};
 use failure::Error;
 use futures::{future, prelude::*, sync::oneshot};
 use grpcio::Server;

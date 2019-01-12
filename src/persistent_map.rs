@@ -29,6 +29,7 @@ where
         self.engine.put_message(self.build_key(k), v)
     }
 
+    #[allow(dead_code)]
     pub fn get(&self, k: &K) -> Result<Option<V>, Error> {
         self.engine.get_message(self.build_key(k))
     }
@@ -48,7 +49,7 @@ where
             .scan_prefix(self.prefix.clone(), |k, v| {
                 let stripped_key = prefix
                     .strip_prefix(k)
-                    .ok_or(err_msg("Invalid prefix key"))?;
+                    .ok_or_else(|| err_msg("Invalid prefix key"))?;
                 let key = K::from_key(&stripped_key);
                 let value = <V as Persistable>::from_bytes(v)?;
                 f(key, value)

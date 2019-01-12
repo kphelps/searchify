@@ -42,12 +42,12 @@ impl Shard {
         let raft_state = new_raft_state_cell(raft_storage_engine, id)?;
         let group_state = raft_state
             .get()
-            .ok_or(format_err!("Shard does not exist: {}", id))?;
+            .ok_or_else(|| format_err!("Shard does not exist: {}", id))?;
 
         let state = new_state_cell(raft_storage_engine, id)?;
         let shard_state = state
             .get()
-            .ok_or(format_err!("Shard does not exist: {}", id))?;
+            .ok_or_else(|| format_err!("Shard does not exist: {}", id))?;
 
         let storage_path = Path::new(storage_root).join(id.to_string());
         let mappings = serde_json::from_str(shard_state.get_mappings())?;

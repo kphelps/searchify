@@ -2,41 +2,124 @@
 
 * Current Notes
   * Should split RPC into two services (KV and Search)
-  * RaftRouter will replace NetworkActor
-  * Need to replace RaftClient with another process
 
-* Todo list
+* Release Tasks
   
-** High Priority
-
-  - Gossip infrastructure
-    - Cache shard routing table
-    - Broadcast member list
-  - Search should respond with source
-  - Better RPC error information - hard to tell what is causing the errors
-  - Setup clippy, rustfmt
-
-** Everything else
-   
-  - Leaseholders
+** 0.1 [10%]
+  :PROPERTIES:
+  :COOKIE_DATA: todo recursive
+  :END:
+*** Search [2/5] 
+**** DONE Term Query
+     CLOSED: [2019-01-11 Fri 11:43]
+**** DONE Bool Query
+     CLOSED: [2019-01-11 Fri 11:45]
+**** TODO Respond with document information
+*** APIs [0/5]
+**** TODO Cluster Health API
+**** TODO Get Document by ID
+**** TODO Get Index
+**** DOING Index Exists
+**** TODO Refresh API
+*** Clustering [0/6]
+**** TODO Allow nodes to join without joining the master raft group
+**** TODO Allocate unallocated shards when a node joins the cluster
+**** TODO Detect when a node leaves the cluster
+     - Use a timeout (like 3 minutes)
+**** TODO De-allocate shard when a node leaves the cluster
+**** TODO Remove inter-node polling
+**** TODO Gossip infrastructure
+*** Indexing [0/4]
+**** TODO Commit on an interval instead of per-operation
+**** TODO Upsert semantics
+**** TODO Bulk Indexing
+**** TODO Response format
+*** Schema [1/1]
+**** DONE Basic data types
+     CLOSED: [2019-01-11 Fri 17:02]
+     - Strings
+     - Longs
+     - Objects
+*** Operations [0/3]
+**** TODO Terraform configuration
+**** TODO Deploy cluster to AWS
+**** TODO Baseline perf test
+*** Storage [0/1]
+**** TODO Raft Log Compaction
+*** Polish [0/5]
+**** TODO CI
+**** TODO pre-commit script
+**** TODO Figure out license
+**** TODO README
+**** TODO Contributor guidelines
+** 0.2 [0%]
+  :PROPERTIES:
+  :COOKIE_DATA: todo recursive
+  :END:
+*** Search [0/4]
+**** TODO Specify document count limit
+**** TODO Sepcify document offset
+**** TODO Sorting
+**** TODO Aggregations
+*** API [0/3]
+**** TODO Multi Get
+**** TODO Get Mapping
+**** TODO Update index settings
+**** TODO API docs
+*** Indexing [0/4]
+**** TODO Partial Failure in bulk requests
+**** TODO Delete
+**** TODO Update?
+*** Schema [0/13]
+**** TODO Text
+**** TODO Float
+**** TODO Boolean
+**** TODO Dates
+**** TODO DateTimes
+**** TODO Integer
+**** TODO Short
+**** TODO Byte
+**** TODO Double
+**** TODO Float
+**** TODO Half Float
+**** TODO Scaled Float
+**** TODO Binary
+*** Clustering [0/2]
+**** TODO Replica sets should have a lease holder
     - https://github.com/cockroachdb/cockroach/blob/master/docs/design.md#range-leases
-  - Cluster health (i.e. are we under replicated? are we available?)
-  - Upsert
-    - use bloom filter to track if a document exists
-    - delete document before indexing if needed
-  - Allocate under replicated shards when nodes come online
-  - Allow nodes to join cluster without joining master raft group
-  - Don't poll for state changes, leader should broadcast events
+**** TODO Direct all reads at the lease holder
+** 0.3 [0%]
+  :PROPERTIES:
+  :COOKIE_DATA: todo recursive
+  :END:
+*** Search [0/2]
+**** TODO Cross-index search
+*** API [0/1]
+**** TODO Update mappings
+**** TODO Cluster settings API
+*** Indexing [/]
+*** Percolation [0/1]
+**** TODO Implment it
+*** Schema [0/3]
+**** TODO Nested Documents
+**** TODO Range Types?
+*** Clustering [0/3]
+**** TODO Split / Merge(?)
+**** TODO Auto-scale replication
+* Icebox
   
-* Tantivy Issues
-  - Max field count is 255
-  - Threading is weird. I want to manage the thread pool across many indices
+** Tooling
+*** tower-grpc is interesting, but ergonomics of pingcap's grpc are currently better. Both suck.
+    
+** Tantivy Issues
+   - Max field count is 255
+   - Threading is weird. I want to manage the thread pool across many indices
 
-* Neat Ideas
-  - Avoid dirty reads!
-  - Can we provide even better consistency guarantees?
-  - Joins! 
-    - https://www.memsql.com/blog/scaling-distributed-joins/
-  - Autoscaling
-    - Split shards at certain conditions
-    - Add replicas at certain conditions
+** Neat Ideas
+   - Avoid dirty reads!
+   - Can we provide even better consistency guarantees?
+   - Joins! 
+     - https://www.memsql.com/blog/scaling-distributed-joins/
+   - Autoscaling
+     - Split shards at certain conditions
+     - Add replicas at certain conditions

@@ -8,7 +8,7 @@ use log::*;
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
-    Arc, RwLock, Mutex,
+    Arc, Mutex, RwLock,
 };
 use std::time::Duration;
 use tokio_retry::{

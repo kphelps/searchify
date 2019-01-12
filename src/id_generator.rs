@@ -11,7 +11,7 @@ pub struct IdGenerator {
 impl IdGenerator {
     pub fn new(engine: &StorageEngine, key: MetaKey) -> Result<Self, Error> {
         let mut storage = CachedPersistentCell::new(engine, key)?;
-        if let None = storage.get() {
+        if storage.get().is_none() {
             let mut state = SequenceState::new();
             state.value = 1;
             storage.set(&state)?;

@@ -42,7 +42,7 @@ impl IndexTracker {
         let index_state = self
             .by_name
             .get(&name.to_string(), &self.indices)
-            .ok_or(err_msg("Index not found"))?;
+            .ok_or_else(|| err_msg("Index not found"))?;
         self.indices.delete(&index_state.id)?;
         self.by_name.remove(&index_state.name);
         Ok(index_state)

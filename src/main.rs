@@ -19,6 +19,7 @@ mod node;
 mod node_router;
 mod persistent_cell;
 mod persistent_map;
+#[allow(renamed_and_removed_lints)]
 mod proto;
 mod query_api;
 mod raft;
@@ -33,10 +34,7 @@ mod shard_tracker;
 mod web;
 
 fn main() {
-    std::env::set_var(
-        "RUST_LOG",
-        "searchify=info,raft=info,tantivy=warn",
-    );
+    std::env::set_var("RUST_LOG", "searchify=info,raft=info,tantivy=warn");
     env_logger::init();
     if let Err(err) = start() {
         error!("Failure: {}", err);
@@ -59,6 +57,6 @@ fn start() -> Result<(), Error> {
 
     let config_path = matches.value_of("config").unwrap();
     let settings = config::Config::new(config_path)?;
-    let _ = node::run(&settings)?;
+    node::run(&settings)?;
     Ok(())
 }

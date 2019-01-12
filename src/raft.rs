@@ -5,13 +5,10 @@ use crate::raft_storage::RaftStorage;
 use crate::storage_engine::MessageWriteBatch;
 use failure::Error;
 use futures::{
-    prelude::*,
     future,
+    prelude::*,
     stream,
-    sync::{
-        mpsc,
-        oneshot,
-    },
+    sync::{mpsc, oneshot},
 };
 use log::*;
 use protobuf::{parse_from_bytes, Message};
@@ -87,7 +84,7 @@ where
 {
     fn observe(self: Box<Self>, state_machine: &S) {
         let result = (self.observe_impl)(state_machine);
-        if let Err(_) = self.sender.send(result) {
+        if self.sender.send(result).is_err() {
             error!("Failed to observe state machine");
         }
     }
@@ -269,7 +266,10 @@ where
         match event {
             StateEvent::Tick => self.raft_tick(),
             StateEvent::Event(event) => match event {
-                RaftStateMessage::Message(message) => Ok(self.raft_node.step(message.message)?),
+                RaftStateMessage::Message(message) => {
+                    self.raft_node.step(message.message)?;
+                    Ok(())
+                }
                 RaftStateMessage::Propose(proposal) => self.propose_entry(proposal),
             },
             StateEvent::Done => unreachable!(),
@@ -321,7 +321,7 @@ where
         let ctx_bytes = ctx.write_to_bytes()?;
         self.observers.insert(id, m.observer);
         let result = self.propose(ctx_bytes, data);
-        if let Err(_) = result {
+        if result.is_err() {
             self.observers.remove(&id);
         }
         result

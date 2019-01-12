@@ -1,4 +1,3 @@
-use crate::proto::*;
 use byteorder::{BigEndian, ByteOrder, WriteBytesExt};
 
 const SEPARATOR: u8 = 0xAA;
@@ -231,22 +230,6 @@ impl KeySpace {
     pub fn as_key(&self) -> MetaKey {
         MetaKey::new().add(self.clone())
     }
-}
-
-pub fn build_index_key(index_name: &str) -> MetaKey {
-    MetaKey::new().add(KeySpace::Index).add(index_name)
-}
-
-pub fn build_shard_prefix(index_name: &str) -> MetaKey {
-    build_index_key(index_name).add(KeySpace::Shard)
-}
-
-pub fn build_shard_key(index_name: &str, shard_id: u64) -> MetaKey {
-    build_shard_prefix(index_name).add(shard_id)
-}
-
-pub fn build_peer_key(peer: &Peer) -> MetaKey {
-    MetaKey::new().add(KeySpace::Peer).add(peer.id)
 }
 
 pub fn id_key(part: impl Into<KeyPart>) -> MetaKey {

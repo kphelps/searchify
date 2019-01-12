@@ -31,6 +31,7 @@ where
         self.cache.as_ref()
     }
 
+    #[allow(dead_code)]
     pub fn delete(&mut self) -> Result<(), Error> {
         self.storage.delete()?;
         self.cache = None;

@@ -99,6 +99,7 @@ impl RpcClient {
             .map(|mut resp| resp.take_shards().into_vec())
     }
 
+    #[allow(dead_code)]
     pub fn list_nodes(&self) -> impl Future<Item = Vec<NodeState>, Error = Error> {
         let request = ListNodesRequest::new();
         futurize(self.client.list_nodes_async_opt(&request, self.options()))

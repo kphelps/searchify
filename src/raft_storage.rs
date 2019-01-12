@@ -98,7 +98,7 @@ impl RaftStorage {
             let key = self.raft_log_key(entry.index);
             batch.put(key.as_ref(), entry)?;
         }
-        if entries.len() > 0 {
+        if !entries.is_empty() {
             let last_entry = entries.last().unwrap();
             self.state.last_index = last_entry.index;
             self.last_term = last_entry.term;
@@ -256,7 +256,7 @@ impl Storage for RaftStorage {
             .iter()
             .for_each(|p| conf_state.mut_nodes().push(p.id));
         Ok(RaftState {
-            conf_state: conf_state,
+            conf_state,
             hard_state: self.hard_state(),
         })
     }
@@ -274,7 +274,7 @@ impl Storage for RaftStorage {
             return Ok(self.last_term);
         }
         let result = self.entries(index, index + 1, NO_LIMIT);
-        if let Err(_) = result {
+        if result.is_err() {
             return Err(RaftError::Store(StorageError::Unavailable));
         }
 

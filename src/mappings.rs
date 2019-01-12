@@ -167,7 +167,7 @@ impl MappingVisitor for DocumentMappingVisitor {
         let properties = self
             .current_value()
             .as_object()
-            .ok_or(format_err!("Invalid object: {}", self.value))?;
+            .ok_or_else(|| format_err!("Invalid object: {}", self.value))?;
         let maybe_value = properties.get(name);
         if maybe_value.is_none() {
             return Ok(false);
@@ -189,7 +189,7 @@ impl MappingVisitor for DocumentMappingVisitor {
             .as_str()
             .map(str::to_string)
             .map(MappedField::Keyword)
-            .ok_or(format_err!("Invalid keyword: '{}'", self.value))?;
+            .ok_or_else(|| format_err!("Invalid keyword: '{}'", self.value))?;
         self.finalize_field(keyword);
         Ok(())
     }
@@ -199,7 +199,7 @@ impl MappingVisitor for DocumentMappingVisitor {
             .current_value()
             .as_i64()
             .map(MappedField::Long)
-            .ok_or(format_err!("Invalid long: {}", self.value))?;
+            .ok_or_else(|| format_err!("Invalid long: {}", self.value))?;
         self.finalize_field(long);
         Ok(())
     }
@@ -314,7 +314,7 @@ mod test {
             "object.field".to_string(),
             MappedField::Keyword("works".to_string()),
         );
-        let expected = MappedDocument { fields: fields };
+        let expected = MappedDocument { fields };
         assert_eq!(mapped_doc, expected);
     }
 

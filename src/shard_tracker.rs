@@ -12,7 +12,7 @@ pub struct ShardTracker {
     id_generator: IdGenerator,
     by_node: KvIndex<u64>,
     by_index: KvIndex<u64>,
-    under_replicated: HashSet<u64>,
+    _under_replicated: HashSet<u64>,
 }
 
 impl ShardTracker {
@@ -24,7 +24,7 @@ impl ShardTracker {
             id_generator,
             by_node: KvIndex::new(),
             by_index: KvIndex::new(),
-            under_replicated: HashSet::new(),
+            _under_replicated: HashSet::new(),
         };
         tracker.initialize_indices();
         Ok(tracker)
