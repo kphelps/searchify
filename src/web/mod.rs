@@ -50,7 +50,7 @@ struct IndexDocumentResponse {}
 #[web(status = "204")]
 struct DeletedResponse {}
 
-#[derive(Serialize)]
+#[derive(Response, Serialize)]
 struct Index {
     index_name: String,
     shard_count: u64,
@@ -60,6 +60,11 @@ struct Index {
 #[derive(Response)]
 struct ListIndicesResponse {
     indices: Vec<Index>,
+}
+
+#[derive(Response)]
+struct InternalError {
+    message: String,
 }
 
 impl_web! {
@@ -111,6 +116,20 @@ impl_web! {
         #[content_type("json")]
         fn delete_index(&self, name: String) -> impl Future<Item = DeletedResponse, Error = Error> + Send {
             self.node_router.delete_index(name).map(|_| DeletedResponse{})
+        }
+
+        #[get("/:name")]
+        #[content_type("json")]
+        fn get_index(&self, name: String) -> impl Future<Item = Index, Error = Error> + Send {
+            self.node_router.get_index(name)
+                .map(|state| {
+                    log::info!("Wahho: {:?}", state);
+                    Index{
+                        index_name: state.name,
+                        shard_count: state.shard_count,
+                        replica_count: state.replica_count,
+                    }
+                })
         }
 
         #[get("/_cat/indices")]

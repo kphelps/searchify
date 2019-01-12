@@ -19,8 +19,9 @@
 **** TODO Cluster Health API
 **** TODO Get Document by ID
 **** TODO Get Index
-**** DOING Index Exists
 **** TODO Refresh API
+**** TODO Index Exists
+     - tower-web doesn't support HEAD. Need to implement it there.
 *** Clustering [0/6]
 **** TODO Allow nodes to join without joining the master raft group
 **** TODO Allocate unallocated shards when a node joins the cluster
