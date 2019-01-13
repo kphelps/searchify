@@ -141,6 +141,12 @@ impl RpcClient {
         futurize(self.client.search_async_opt(&request, self.options()))
     }
 
+    pub fn refresh_shard(&self, shard_id: u64) -> impl Future<Item = (), Error = Error> {
+        let mut request = RefreshRequest::new();
+        request.set_shard_id(shard_id);
+        futurize_unit(self.client.refresh_async_opt(&request, self.options()))
+    }
+
     fn options(&self) -> CallOption {
         CallOption::default()
             .wait_for_ready(true)

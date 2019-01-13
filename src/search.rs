@@ -57,7 +57,7 @@ impl IndexCoordinator {
                 }
             })
             .collect::<Result<(), Error>>()?;
-        let (sender, receiver) = mpsc::channel(256);
+        let (sender, receiver) = mpsc::channel(1024);
         coordinator.run(receiver);
         Ok(Self { _sender: sender })
     }
@@ -112,7 +112,6 @@ impl Inner {
             &self.config.search_storage_root(),
             &self.raft_router,
         )?;
-        info!("loaded");
         self.shards.insert(state.get_id(), shard);
         Ok(())
     }

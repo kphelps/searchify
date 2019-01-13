@@ -78,6 +78,8 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
         kv_state_machine,
         node_router.clone(),
         &kv_raft_router,
+        None,
+        None,
     )?;
     let server = start_rpc_server(
         &kv_raft_router,

@@ -17,13 +17,21 @@ type SimplePropose = RaftPropose<SearchStateMachine>;
 impl RaftStateMachine for SearchStateMachine {
     type EntryType = SearchEntry;
 
-    fn apply(&mut self, entry: SearchEntry) -> Result<(), Error> {
+    fn apply(&mut self, entry: SearchEntry) -> Result<bool, Error> {
         if entry.operation.is_none() {
-            return Ok(());
+            return Ok(false);
         }
-        match entry.operation.unwrap() {
-            SearchEntry_oneof_operation::add_document(operation) => self.add_document(operation),
-        }
+        let committed = match entry.operation.unwrap() {
+            SearchEntry_oneof_operation::add_document(operation) => {
+                self.add_document(operation)?;
+                false
+            }
+            SearchEntry_oneof_operation::refresh(_) => {
+                self.refresh()?;
+                true
+            }
+        };
+        Ok(committed)
     }
 }
 
@@ -37,6 +45,10 @@ impl SearchStateMachine {
         let document: serde_json::Value = serde_json::from_str(request.get_payload())?;
         let mapped_doc = self.mappings.map_to_document(&document)?;
         self.storage.index(mapped_doc)
+    }
+
+    fn refresh(&mut self) -> Result<(), Error> {
+        self.storage.refresh()
     }
 
     pub fn propose_add_document(
@@ -60,5 +72,16 @@ impl SearchStateMachine {
         // TODO: This should go through the leaseholder and avoid raft altogether
         let observer = SimpleObserver::new(sender, move |sm: &Self| sm.storage.search(request));
         SimplePropose::new_for_group(shard_id, entry, observer)
+    }
+
+    pub fn propose_refresh(
+        request: RefreshRequest,
+        sender: Sender<RefreshResponse>,
+    ) -> SimplePropose {
+        let mut entry = SearchEntry::new();
+        let operation = RefreshOperation::new();
+        entry.set_refresh(operation);
+        let observer = SimpleObserver::new(sender, |_: &Self| RefreshResponse::new());
+        SimplePropose::new_for_group(request.shard_id, entry, observer)
     }
 }

@@ -123,7 +123,6 @@ impl_web! {
         fn get_index(&self, name: String) -> impl Future<Item = Index, Error = Error> + Send {
             self.node_router.get_index(name)
                 .map(|state| {
-                    log::info!("Wahho: {:?}", state);
                     Index{
                         index_name: state.name,
                         shard_count: state.shard_count,

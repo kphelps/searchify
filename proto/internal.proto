@@ -18,6 +18,7 @@ service Internal {
 
   rpc IndexDocument(IndexDocumentRequest) returns (IndexDocumentResponse) {}
   rpc Search(SearchRequest) returns (SearchResponse) {}
+  rpc Refresh(RefreshRequest) returns (RefreshResponse) {}
 }
 
 message HelloRequest {
@@ -76,11 +77,15 @@ message KeyValueEntry {
 message SearchEntry {
   oneof operation {
     AddDocumentOperation add_document = 1;
+    RefreshOperation refresh = 2;
   }
 }
 
 message AddDocumentOperation {
   string payload = 1;
+}
+
+message RefreshOperation {
 }
 
 message EntryContext {
@@ -217,4 +222,11 @@ message SearchResponse {
 message SearchHit {
   uint64 id = 1;
   bytes source = 2;
+}
+
+message RefreshRequest {
+  uint64 shard_id = 1;
+}
+
+message RefreshResponse {
 }

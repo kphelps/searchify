@@ -45,7 +45,6 @@ impl SearchStorage {
                 info!("[shard-{}] Indexing doc: {:?}", self.shard_id, doc);
                 self.writer.add_document(doc);
             });
-        self.writer.commit()?;
         Ok(())
     }
 
@@ -65,5 +64,10 @@ impl SearchStorage {
         response.set_total(result.0 as u64);
         info!("[shard-{}] Response: {:?}", self.shard_id, response);
         Ok(response)
+    }
+
+    pub fn refresh(&mut self) -> Result<(), Error> {
+        self.writer.commit()?;
+        Ok(())
     }
 }

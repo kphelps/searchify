@@ -170,6 +170,7 @@ impl Internal for InternalServer {
         req: IndexDocumentRequest,
         sink: UnarySink<IndexDocumentResponse>,
     ) {
+        info!("Index()");
         let (sender, receiver) = channel();
         let proposal = SearchStateMachine::propose_add_document(req, sender);
         propose_api(&self.search_raft_router, proposal, receiver, ctx, sink);
@@ -179,6 +180,12 @@ impl Internal for InternalServer {
         let (sender, receiver) = channel();
         let proposal = SearchStateMachine::search(req, sender);
         propose_api_result(&self.search_raft_router, proposal, receiver, ctx, sink);
+    }
+
+    fn refresh(&mut self, ctx: RpcContext, req: RefreshRequest, sink: UnarySink<RefreshResponse>) {
+        let (sender, receiver) = channel();
+        let proposal = SearchStateMachine::propose_refresh(req, sender);
+        propose_api(&self.search_raft_router, proposal, receiver, ctx, sink);
     }
 }
 
@@ -219,11 +226,13 @@ where
     I: Send + 'static,
     E: Into<Error> + Send + Sync,
 {
-    let f = f.map_err(|e| e.into()).then(|out| match out {
-        Ok(value) => sink.success(value).map_err(Error::from),
-        Err(e) => {
-            let status = RpcStatus::new(RpcStatusCode::Internal, Some(format!("{}", e)));
-            sink.fail(status).map_err(Error::from)
+    let f = f.map_err(|e| e.into()).then(|out| {
+        match out {
+            Ok(value) => sink.success(value).map_err(Error::from),
+            Err(e) => {
+                let status = RpcStatus::new(RpcStatusCode::Internal, Some(format!("{}", e)));
+                sink.fail(status).map_err(Error::from)
+            }
         }
     });
     ctx.spawn(
@@ -243,7 +252,7 @@ pub fn start_rpc_server(
         kv_raft_router: kv_raft_router.clone(),
         search_raft_router: search_raft_router.clone(),
     });
-    let env = Arc::new(EnvBuilder::new().build());
+    let env = Arc::new(EnvBuilder::new().cq_count(32).build());
     let mut server = ServerBuilder::new(env)
         .register_service(service)
         .bind("127.0.0.1", port)

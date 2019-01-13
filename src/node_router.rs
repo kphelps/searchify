@@ -185,12 +185,39 @@ impl NodeRouter {
             })
     }
 
+    pub fn refresh_shard(
+        &self,
+        shard_id: u64,
+    ) -> impl Future<Item = (), Error = Error> {
+        let peers = self.peers.clone();
+        self.get_shard_by_id(shard_id)
+            .and_then(move |shard| {
+                let replica_id = shard.replicas.first().unwrap().id;
+                let client = peers.read().unwrap().get(&replica_id).cloned().unwrap();
+                client.refresh_shard(shard.id)
+            })
+    }
+
+    fn get_shard_by_id(
+        &self,
+        shard_id: u64,
+    ) -> impl Future<Item = ShardState, Error = Error> {
+        self.list_indices().and_then(move |response| {
+            response.get_indices()
+                .into_iter()
+                .map(|index| index.get_shards())
+                .flatten()
+                .find(|shard| shard.get_id() == shard_id)
+                .cloned()
+                .ok_or_else(|| err_msg("Shard not found"))
+        })
+    }
+
     fn get_shard_for_document(
         &self,
         index_name: &str,
         document_id: u64,
     ) -> impl Future<Item = ShardState, Error = Error> {
-        // TODO: obviously need a shard routing algorithm
         self.get_index(index_name.to_string()).map(move |index| {
             index
                 .shards

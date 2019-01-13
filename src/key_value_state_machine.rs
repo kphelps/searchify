@@ -30,16 +30,17 @@ impl KeyValueStateMachine {
 impl RaftStateMachine for KeyValueStateMachine {
     type EntryType = KeyValueEntry;
 
-    fn apply(&mut self, entry: KeyValueEntry) -> Result<(), Error> {
+    fn apply(&mut self, entry: KeyValueEntry) -> Result<bool, Error> {
         if entry.entry.is_none() {
-            return Ok(());
+            return Ok(true);
         }
 
         match entry.entry.unwrap() {
-            KeyValueEntry_oneof_entry::create_index(req) => self.create_index(req),
-            KeyValueEntry_oneof_entry::delete_index(req) => self.delete_index(req),
-            KeyValueEntry_oneof_entry::heartbeat(heartbeat) => self.liveness_heartbeat(heartbeat),
+            KeyValueEntry_oneof_entry::create_index(req) => self.create_index(req)?,
+            KeyValueEntry_oneof_entry::delete_index(req) => self.delete_index(req)?,
+            KeyValueEntry_oneof_entry::heartbeat(heartbeat) => self.liveness_heartbeat(heartbeat)?,
         }
+        Ok(true)
     }
 }
 
@@ -134,7 +135,6 @@ impl KeyValueStateMachine {
             .into_iter()
             .map(|mut index_state| {
                 let shards = self.shards.get_shards_for_index(index_state.id);
-                info!("Shahrds: {:?}", shards);
                 index_state.set_shards(shards.into());
                 index_state
             })

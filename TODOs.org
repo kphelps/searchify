@@ -5,7 +5,7 @@
 
 * Release Tasks
   
-** 0.1 [10%]
+** 0.1 [13%]
   :PROPERTIES:
   :COOKIE_DATA: todo recursive
   :END:
@@ -15,10 +15,11 @@
 **** DONE Bool Query
      CLOSED: [2019-01-11 Fri 11:45]
 **** TODO Respond with document information
-*** APIs [0/5]
+*** APIs [1/5]
 **** TODO Cluster Health API
 **** TODO Get Document by ID
-**** TODO Get Index
+**** DONE Get Index
+     CLOSED: [2019-01-11 Fri 23:15]
 **** TODO Refresh API
 **** TODO Index Exists
      - tower-web doesn't support HEAD. Need to implement it there.
@@ -30,8 +31,9 @@
 **** TODO De-allocate shard when a node leaves the cluster
 **** TODO Remove inter-node polling
 **** TODO Gossip infrastructure
+**** TODO Cache shard routing information
 *** Indexing [0/4]
-**** TODO Commit on an interval instead of per-operation
+**** DOING Commit on an interval instead of per-operation
 **** TODO Upsert semantics
 **** TODO Bulk Indexing
 **** TODO Response format
@@ -41,10 +43,11 @@
      - Strings
      - Longs
      - Objects
-*** Operations [0/3]
+*** Operations [0/4]
 **** TODO Terraform configuration
 **** TODO Deploy cluster to AWS
 **** TODO Baseline perf test
+**** TODO Expose prometheus metrics
 *** Storage [0/1]
 **** TODO Raft Log Compaction
 *** Polish [0/5]

@@ -17,12 +17,15 @@ use raft::{
     raw_node::{RawNode, Ready},
     storage::Storage,
     Config,
+    StateRole,
 };
 use std::boxed::Box;
 use std::clone::Clone;
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::timer::Interval;
+
+pub type TaskFn = Box<dyn Fn() -> Box<dyn Future<Item = (), Error = ()> + Send> + Send>;
 
 struct RaftState<T> {
     state_machine: T,
@@ -31,6 +34,10 @@ struct RaftState<T> {
     node_id: u64,
     raft_group_id: u64,
     leader_id: u64,
+    current_role: StateRole,
+    leader_task: Option<TaskFn>,
+    follower_task: Option<TaskFn>,
+    _role_task_handle: Option<oneshot::Sender<()>>,
     observers: HashMap<u64, Box<StateMachineObserver<T> + Send + Sync + 'static>>,
 }
 
@@ -131,7 +138,7 @@ pub struct RaftMessageReceived {
 pub trait RaftStateMachine {
     type EntryType: Message;
 
-    fn apply(&mut self, entry: Self::EntryType) -> Result<(), Error>;
+    fn apply(&mut self, entry: Self::EntryType) -> Result<bool, Error>;
 }
 
 pub trait RaftEntryHandler<T> {
@@ -150,9 +157,18 @@ where
         state_machine: T,
         node_router: NodeRouterHandle,
         raft_router: &RaftRouter<T>,
+        leader_task: Option<TaskFn>,
+        follower_task: Option<TaskFn>,
     ) -> Result<Self, Error> {
-        let (sender, receiver) = mpsc::channel(128);
-        let state = RaftState::new(node_id, storage, state_machine, node_router)?;
+        let (sender, receiver) = mpsc::channel(4096);
+        let state = RaftState::new(
+            node_id,
+            storage,
+            state_machine,
+            node_router,
+            leader_task,
+            follower_task,
+        )?;
         let group_id = state.raft_group_id;
         state.run(receiver, Duration::from_millis(200));
         let client = Self { sender };
@@ -213,6 +229,8 @@ where
         storage: RaftStorage,
         state_machine: T,
         node_router: NodeRouterHandle,
+        leader_task: Option<TaskFn>,
+        follower_task: Option<TaskFn>,
     ) -> Result<Self, Error> {
         let raft_group_id = storage.raft_group_id();
         let config = Config {
@@ -233,7 +251,9 @@ where
             node.campaign()?;
         }
 
-        Ok(Self {
+        let current_role = node.raft.state.clone();
+
+        let mut state = Self {
             raft_node: node,
             observers: HashMap::new(),
             leader_id: 0,
@@ -241,7 +261,13 @@ where
             raft_group_id,
             state_machine,
             node_router,
-        })
+            current_role,
+            leader_task,
+            follower_task,
+            _role_task_handle: None,
+        };
+        state.handle_role_change();
+        Ok(state)
     }
 
     fn run(mut self, receiver: mpsc::Receiver<RaftStateMessage<T>>, tick_interval: Duration) {
@@ -282,6 +308,7 @@ where
             return Ok(());
         }
 
+        let start = Instant::now();
         let mut ready = self.raft_node.ready();
         if self.is_leader() {
             self.send_messages(&mut ready);
@@ -298,6 +325,10 @@ where
         self.advance_raft(ready);
         let _ = self.compact();
         self.update_leader_id();
+        self.check_for_role_change();
+        if self.raft_group_id != 0 {
+            info!("[group-{}] Ready handled ({:?})", self.raft_group_id, start.elapsed());
+        }
         Ok(())
     }
 
@@ -308,8 +339,47 @@ where
         }
     }
 
+    fn check_for_role_change(&mut self) {
+        if self.current_role == self.raft_node.raft.state {
+            return;
+        }
+        self.current_role = self.raft_node.raft.state.clone();
+        self._role_task_handle = None;
+        self.handle_role_change();
+    }
+
+    fn handle_role_change(&mut self) {
+        match self.current_role {
+            StateRole::Leader => self.change_role_to_leader(),
+            StateRole::Follower => self.change_role_to_follower(),
+            _ => info!("became candidate"),
+        }
+    }
+
+    fn change_role_to_leader(&mut self) {
+        info!("became leader");
+        if let Some(ref f) = self.leader_task {
+            let (sender, receiver) = oneshot::channel();
+            let f = f().select(receiver.map_err(|_| ()));
+            tokio::spawn(f.then(|_| Ok(())));
+            self._role_task_handle = Some(sender);
+        }
+    }
+
+    fn change_role_to_follower(&mut self) {
+        info!("became follower");
+        if let Some(ref f) = self.follower_task {
+            let (sender, receiver) = oneshot::channel();
+            let f = f().select(receiver.map_err(|_| ()));
+            tokio::spawn(f.then(|_| Ok(())));
+            self._role_task_handle = Some(sender);
+        }
+    }
+
     fn propose(&mut self, context: Vec<u8>, data: Vec<u8>) -> Result<(), Error> {
-        debug!("Propose({}, {})", context.len(), data.len());
+        if self.raft_group_id != 0 {
+            info!("Propose({}, {})", context.len(), data.len());
+        }
         self.raft_node.propose(context, data).map_err(|e| e.into())
     }
 
@@ -378,18 +448,21 @@ where
             let mut last_apply_index = 0;
             let mut conf_state = None;
             for entry in committed_entries {
-                last_apply_index = entry.get_index();
 
                 if entry.get_data().is_empty() && entry.get_context().is_empty() {
                     // Emtpy entry, when the peer becomes Leader it will send an empty entry.
                     continue;
                 }
 
-                match entry.get_entry_type() {
+                let did_apply = match entry.get_entry_type() {
                     eraftpb::EntryType::EntryNormal => self.handle_normal_entry(entry)?,
                     eraftpb::EntryType::EntryConfChange => {
-                        conf_state = Some(self.handle_conf_change_entry(entry))
+                        conf_state = Some(self.handle_conf_change_entry(entry));
+                        true
                     }
+                };
+                if did_apply {
+                    last_apply_index = entry.get_index();
                 }
             }
             if last_apply_index > 0 {
@@ -405,19 +478,19 @@ where
         Ok(())
     }
 
-    fn handle_normal_entry(&mut self, entry: &eraftpb::Entry) -> Result<(), Error> {
+    fn handle_normal_entry(&mut self, entry: &eraftpb::Entry) -> Result<bool, Error> {
         debug!("NormalEntry: {:?}", entry);
         let ctx = parse_from_bytes::<EntryContext>(&entry.context)?;
         let parsed = parse_from_bytes::<T::EntryType>(&entry.data)?;
         let apply_result = self.state_machine.apply(parsed);
-        if let Err(err) = apply_result {
+        if let Err(ref err) = apply_result {
             let parsed = parse_from_bytes::<T::EntryType>(&entry.data)?;
             warn!("Failed to apply '{:?}': {}", parsed, err);
         }
         if let Some(observer) = self.observers.remove(&ctx.id) {
             observer.observe(&self.state_machine);
         }
-        Ok(())
+        Ok(apply_result.unwrap_or(false))
     }
 
     fn handle_conf_change_entry(&mut self, entry: &eraftpb::Entry) -> eraftpb::ConfState {

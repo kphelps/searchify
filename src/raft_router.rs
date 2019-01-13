@@ -123,7 +123,7 @@ where
         &self,
         message: RaftPropose<K>,
     ) -> impl Future<Item = (), Error = Error> + Send {
-        info!(
+        debug!(
             "[group-{}] Proposal {:?}",
             message.raft_group_id, message.entry
         );
