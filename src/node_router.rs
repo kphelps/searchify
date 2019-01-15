@@ -22,6 +22,7 @@ pub struct NodeRouter {
     peers: Arc<RwLock<HashMap<u64, RpcClient>>>,
     leader_id: AtomicUsize,
     tasks: Arc<Mutex<Vec<oneshot::Sender<()>>>>,
+    index_cache: Arc<RwLock<HashMap<String, IndexState>>>,
 }
 
 #[derive(Clone)]
@@ -42,6 +43,7 @@ impl NodeRouter {
             peers: Arc::new(RwLock::new(clients)),
             leader_id: AtomicUsize::new(0),
             tasks: Arc::new(Mutex::new(Vec::new())),
+            index_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -154,11 +156,13 @@ impl NodeRouter {
         payload: serde_json::Value,
     ) -> impl Future<Item = (), Error = Error> {
         // TODO: should get handle, not clone
+        let x = std::time::Instant::now();
         let peers = self.peers.clone();
         self.get_shard_for_document(&index_name, document_id)
             .and_then(move |shard| {
                 let replica_id = shard.replicas.first().unwrap().id;
                 let client = peers.read().unwrap().get(&replica_id).cloned().unwrap();
+                info!("Hello: {:?}", x.elapsed());
                 client.index_document(&index_name, shard.id, payload)
             })
     }
@@ -183,6 +187,24 @@ impl NodeRouter {
                     info!("Search response: {:?}", results);
                 })
             })
+    }
+
+    pub fn refresh_index(
+        &self,
+        index_name: &str,
+    ) -> impl Future<Item = (), Error = Error> {
+        let peers = self.peers.clone();
+        self.get_cached_index(index_name)
+            .and_then(move |mut index| {
+                let shards = index.take_shards().into_iter().map(move |shard| {
+                    let peers = peers.read().unwrap();
+                    let replica_id = shard.replicas.first().unwrap().id;
+                    let client = peers.get(&replica_id).cloned().unwrap();
+                    client.refresh_shard(shard.id)
+                });
+                future::join_all(shards)
+            })
+            .map(|_| ())
     }
 
     pub fn refresh_shard(
@@ -218,7 +240,7 @@ impl NodeRouter {
         index_name: &str,
         document_id: u64,
     ) -> impl Future<Item = ShardState, Error = Error> {
-        self.get_index(index_name.to_string()).map(move |index| {
+        self.get_cached_index(index_name).map(move |index| {
             index
                 .shards
                 .into_iter()
@@ -228,6 +250,31 @@ impl NodeRouter {
                     low_id <= document_id && document_id <= high_id
                 })
                 .expect("Invalid range")
+        })
+    }
+
+    fn get_cached_index(&self, index_name: &str)
+       -> impl Future<Item = IndexState, Error = Error>
+    {
+        let cache = self.index_cache.read().unwrap();
+        let f: Box<Future<Item=IndexState, Error=Error> + Send> = if cache.contains_key(index_name) {
+            Box::new(futures::future::ok(cache.get(index_name).cloned().unwrap()))
+        } else {
+            drop(cache);
+            Box::new(self.refresh_index_cache(index_name))
+        };
+        f
+    }
+
+    // TODO: Need to refresh this when routing is out of date
+    fn refresh_index_cache(&self, index_name: &str)
+        -> impl Future<Item = IndexState, Error = Error>
+    {
+        let cache = self.index_cache.clone();
+        self.get_index(index_name.to_string()).map(move |index| {
+            let mut locked = cache.write().unwrap();
+            locked.insert(index.get_name().to_string(), index.clone());
+            index
         })
     }
 

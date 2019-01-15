@@ -130,6 +130,7 @@ where
     }
 }
 
+#[derive(Clone)]
 pub struct RaftMessageReceived {
     pub raft_group_id: u64,
     pub message: eraftpb::Message,
@@ -308,7 +309,6 @@ where
             return Ok(());
         }
 
-        let start = Instant::now();
         let mut ready = self.raft_node.ready();
         if self.is_leader() {
             self.send_messages(&mut ready);
@@ -326,9 +326,6 @@ where
         let _ = self.compact();
         self.update_leader_id();
         self.check_for_role_change();
-        if self.raft_group_id != 0 {
-            info!("[group-{}] Ready handled ({:?})", self.raft_group_id, start.elapsed());
-        }
         Ok(())
     }
 
@@ -378,7 +375,7 @@ where
 
     fn propose(&mut self, context: Vec<u8>, data: Vec<u8>) -> Result<(), Error> {
         if self.raft_group_id != 0 {
-            info!("Propose({}, {})", context.len(), data.len());
+            debug!("Propose({}, {})", context.len(), data.len());
         }
         self.raft_node.propose(context, data).map_err(|e| e.into())
     }

@@ -50,15 +50,23 @@ impl Internal for InternalServer {
         sink: UnarySink<EmptyResponse>,
     ) {
         let raft_message = parse_from_bytes::<eraftpb::Message>(&req.wrapped_message).unwrap();
-        // TODO: Needs to go to the correct router
-        let f = self
-            .kv_raft_router
-            .handle_raft_message(RaftMessageReceived {
-                raft_group_id: req.raft_group_id,
-                message: raft_message,
-            })
-            .map(|_| EmptyResponse::new());
-        future_to_sink(f, ctx, sink);
+        let message = RaftMessageReceived {
+            raft_group_id: req.raft_group_id,
+            message: raft_message,
+        };
+        if self.kv_raft_router.has_group(req.raft_group_id) {
+            let f = self
+                .kv_raft_router
+                .handle_raft_message(message)
+                .map(|_| EmptyResponse::new());
+            future_to_sink(f, ctx, sink);
+        } else {
+            let f = self
+                .search_raft_router
+                .handle_raft_message(message)
+                .map(|_| EmptyResponse::new());
+            future_to_sink(f, ctx, sink);
+        }
     }
 
     fn create_index(

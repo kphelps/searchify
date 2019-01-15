@@ -5,25 +5,27 @@
 
 * Release Tasks
   
-** 0.1 [13%]
+** 0.1 [19%]
   :PROPERTIES:
   :COOKIE_DATA: todo recursive
   :END:
-*** Search [2/5] 
+*** Search [2/3] 
 **** DONE Term Query
      CLOSED: [2019-01-11 Fri 11:43]
 **** DONE Bool Query
      CLOSED: [2019-01-11 Fri 11:45]
 **** TODO Respond with document information
-*** APIs [1/5]
-**** TODO Cluster Health API
-**** TODO Get Document by ID
+*** APIs [2/6]
 **** DONE Get Index
      CLOSED: [2019-01-11 Fri 23:15]
-**** TODO Refresh API
+**** DONE Refresh API
+     CLOSED: [2019-01-14 Mon 23:12]
+**** TODO Get Document by ID
+**** TODO Bulk API
+**** TODO Cluster Health API
 **** TODO Index Exists
      - tower-web doesn't support HEAD. Need to implement it there.
-*** Clustering [0/6]
+*** Clustering [0/7]
 **** TODO Allow nodes to join without joining the master raft group
 **** TODO Allocate unallocated shards when a node joins the cluster
 **** TODO Detect when a node leaves the cluster
@@ -32,10 +34,12 @@
 **** TODO Remove inter-node polling
 **** TODO Gossip infrastructure
 **** TODO Cache shard routing information
-*** Indexing [0/4]
-**** DOING Commit on an interval instead of per-operation
+     - Done for indices. Need to figure out when to refresh it and do it for shard-level routing
+*** Indexing [1/4]
+**** DONE Commit on an interval instead of per-operation
+     CLOSED: [2019-01-14 Mon 08:26]
 **** TODO Upsert semantics
-**** TODO Bulk Indexing
+**** TODO Create semantics
 **** TODO Response format
 *** Schema [1/1]
 **** DONE Basic data types
@@ -65,11 +69,12 @@
 **** TODO Sepcify document offset
 **** TODO Sorting
 **** TODO Aggregations
-*** API [0/3]
+*** API [0/5]
 **** TODO Multi Get
 **** TODO Get Mapping
 **** TODO Update index settings
 **** TODO API docs
+**** TODO Per-shard response information
 *** Indexing [0/4]
 **** TODO Partial Failure in bulk requests
 **** TODO Delete
@@ -88,10 +93,11 @@
 **** TODO Half Float
 **** TODO Scaled Float
 **** TODO Binary
-*** Clustering [0/2]
+*** Clustering [0/3]
 **** TODO Replica sets should have a lease holder
     - https://github.com/cockroachdb/cockroach/blob/master/docs/design.md#range-leases
 **** TODO Direct all reads at the lease holder
+**** TODO Heartbeat at the node level, not the shard level
 ** 0.3 [0%]
   :PROPERTIES:
   :COOKIE_DATA: todo recursive

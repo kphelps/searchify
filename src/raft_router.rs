@@ -1,15 +1,16 @@
 use crate::raft::{RaftClient, RaftMessageReceived, RaftPropose, RaftStateMachine};
 use failure::{format_err, Error};
-use futures::{future, prelude::*, sync::mpsc};
+use futures::{future, prelude::*};
 use log::*;
 use std::clone::Clone;
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 pub struct RaftRouter<K>
 where
     K: RaftStateMachine + 'static,
 {
-    sender: mpsc::Sender<RaftRouterEvent<K>>,
+    inner: Arc<RwLock<Inner<K>>>,
 }
 
 impl<K> Clone for RaftRouter<K>
@@ -18,18 +19,9 @@ where
 {
     fn clone(&self) -> Self {
         Self {
-            sender: self.sender.clone(),
+            inner: self.inner.clone(),
         }
     }
-}
-
-enum RaftRouterEvent<K>
-where
-    K: RaftStateMachine + 'static,
-{
-    NewGroup(u64, RaftClient<K>),
-    Message(RaftMessageReceived),
-    Propose(RaftPropose<K>),
 }
 
 struct Inner<K>
@@ -44,29 +36,31 @@ where
     K: RaftStateMachine + Send + 'static,
 {
     pub fn new() -> Self {
-        let (sender, receiver) = mpsc::channel(4096);
         let inner = Inner::new();
-        inner.run(receiver);
-        Self { sender }
+        Self { inner: Arc::new(RwLock::new(inner)) }
     }
 
     pub fn register(&self, id: u64, addr: RaftClient<K>) -> impl Future<Item = (), Error = Error> {
-        self.send(RaftRouterEvent::NewGroup(id, addr))
+        let mut locked = self.inner.write().unwrap();
+        locked.add_group(id, addr)
+    }
+
+    pub fn has_group(&self, id: u64) -> bool {
+        let locked = self.inner.read().unwrap();
+        locked.has_group(id)
     }
 
     pub fn handle_raft_message(
         &self,
         message: RaftMessageReceived,
     ) -> impl Future<Item = (), Error = Error> {
-        self.send(RaftRouterEvent::Message(message))
+        let locked = self.inner.read().unwrap();
+        locked.handle_raft_message(message)
     }
 
     pub fn propose(&self, proposal: RaftPropose<K>) -> impl Future<Item = (), Error = Error> {
-        self.send(RaftRouterEvent::Propose(proposal))
-    }
-
-    fn send(&self, event: RaftRouterEvent<K>) -> impl Future<Item = (), Error = Error> {
-        self.sender.clone().send(event).map(|_| ()).from_err()
+        let locked = self.inner.read().unwrap();
+        locked.handle_raft_propose(proposal)
     }
 }
 
@@ -80,22 +74,8 @@ where
         }
     }
 
-    fn run(mut self, receiver: mpsc::Receiver<RaftRouterEvent<K>>) {
-        let f = receiver.for_each(move |event| self.handle_event(event));
-        tokio::spawn(f);
-    }
-
-    fn handle_event(
-        &mut self,
-        event: RaftRouterEvent<K>,
-    ) -> impl Future<Item = (), Error = ()> + Send {
-        let f: Box<Future<Item = (), Error = Error> + Send> = match event {
-            RaftRouterEvent::NewGroup(id, addr) => Box::new(self.add_group(id, addr)),
-            RaftRouterEvent::Message(message) => Box::new(self.handle_raft_message(message)),
-            RaftRouterEvent::Propose(propose) => Box::new(self.handle_raft_propose(propose)),
-        };
-        f.map_err(|err| error!("Error routing raft event: {:?}", err))
-            .then(|_| Ok(()))
+    fn has_group(&self, id: u64) -> bool {
+        self.raft_groups.contains_key(&id)
     }
 
     fn add_group(

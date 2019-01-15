@@ -47,6 +47,9 @@ struct SearchResponse {}
 struct IndexDocumentResponse {}
 
 #[derive(Response)]
+struct RefreshResponse {}
+
+#[derive(Response)]
 #[web(status = "204")]
 struct DeletedResponse {}
 
@@ -112,6 +115,12 @@ impl_web! {
                 .map(|_| IndexDocumentResponse {})
         }
 
+        #[post("/:name/_refresh")]
+        #[content_type("json")]
+        fn refresh_index(&self, name: String) -> impl Future<Item = RefreshResponse, Error = Error> + Send {
+            self.node_router.refresh_index(&name).map(|_| RefreshResponse {})
+        }
+
         #[delete("/:name")]
         #[content_type("json")]
         fn delete_index(&self, name: String) -> impl Future<Item = DeletedResponse, Error = Error> + Send {
@@ -122,12 +131,10 @@ impl_web! {
         #[content_type("json")]
         fn get_index(&self, name: String) -> impl Future<Item = Index, Error = Error> + Send {
             self.node_router.get_index(name)
-                .map(|state| {
-                    Index{
-                        index_name: state.name,
-                        shard_count: state.shard_count,
-                        replica_count: state.replica_count,
-                    }
+                .map(|state| Index{
+                    index_name: state.name,
+                    shard_count: state.shard_count,
+                    replica_count: state.replica_count,
                 })
         }
 
