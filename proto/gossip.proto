@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package gossip;
+
+service Gossip {
+  rpc Exchange(GossipData) returns (GossipData) {}
+}
+
+message GossipData {
+  uint64 node_id = 1;
+  uint64 sequence_id = 2;
+  map<uint64, string> peer_addresses = 3;
+}

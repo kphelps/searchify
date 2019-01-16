@@ -8,3 +8,10 @@ seeds = [
 
 [web]
 port = 8082
+
+[gossip]
+port = 11768
+bootstrap = [
+  "localhost:11766",
+  "localhost:11767",
+]

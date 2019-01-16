@@ -8,6 +8,7 @@ mod storage_engine;
 mod cached_persistent_cell;
 mod cached_persistent_map;
 mod config;
+mod gossip;
 mod id_generator;
 mod index_tracker;
 mod key_value_state_machine;

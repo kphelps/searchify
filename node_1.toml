@@ -3,3 +3,9 @@ seeds = [
   "localhost:11667",
   "localhost:11668",
 ]
+
+[gossip]
+bootstrap = [
+  "localhost:11767",
+  "localhost:11768",
+]

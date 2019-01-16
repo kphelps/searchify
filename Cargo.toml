@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 byteorder = "*"
+bytes = "*"
 clap = "*"
 config = "*"
 env_logger = "*"
@@ -16,6 +17,8 @@ futures-cpupool = "*"
 http = "*"
 log = "*"
 protobuf = "*"
+prost = "*"
+prost-derive = "*"
 rand = "*"
 raft = "0.4"
 serde = "*"
@@ -23,9 +26,14 @@ serde_derive = "*"
 serde_json = "*"
 tantivy = "*"
 tokio = "*"
+tokio-connect = { git = "https://github.com/carllerche/tokio-connect" }
 tokio-retry = "*"
 tokio-signal = "*"
 tokio-timer = "*"
+tower-grpc = { git = "https://github.com/tower-rs/tower-grpc" }
+tower-h2 = { git = "https://github.com/tower-rs/tower-h2" }
+tower-http = { git = "https://github.com/tower-rs/tower-http" }
+tower-util = { git = "https://github.com/tower-rs/tower" }
 tower-web = "*"
 uuid = "*"
 
@@ -34,6 +42,7 @@ git = "https://github.com/pingcap/rust-rocksdb.git"
 
 [build-dependencies]
 protoc-grpcio = "*"
+tower-grpc-build = { git = "https://github.com/tower-rs/tower-grpc" }
 
 [dev-dependencies]
 tempfile = "*"
