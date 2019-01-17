@@ -6,6 +6,6 @@ seeds = [
 
 [gossip]
 bootstrap = [
-  "localhost:11767",
-  "localhost:11768",
+  "http://localhost:11767",
+  "http://localhost:11768",
 ]

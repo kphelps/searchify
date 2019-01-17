@@ -16,8 +16,7 @@ use raft::{
     self, eraftpb,
     raw_node::{RawNode, Ready},
     storage::Storage,
-    Config,
-    StateRole,
+    Config, StateRole,
 };
 use std::boxed::Box;
 use std::clone::Clone;
@@ -445,7 +444,6 @@ where
             let mut last_apply_index = 0;
             let mut conf_state = None;
             for entry in committed_entries {
-
                 if entry.get_data().is_empty() && entry.get_context().is_empty() {
                     // Emtpy entry, when the peer becomes Leader it will send an empty entry.
                     continue;

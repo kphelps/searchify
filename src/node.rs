@@ -1,7 +1,7 @@
 use crate::config::Config;
+use crate::gossip::GossipServer;
 use crate::key_value_state_machine::KeyValueStateMachine;
-use crate::gossip::GossipNode;
-use crate::network::start_rpc_server;
+use crate::network::{start_rpc_server, InternalServer};
 use crate::node_router::NodeRouter;
 use crate::proto::{RaftGroupMetaState, RaftGroupType};
 use crate::raft::RaftClient;
@@ -24,7 +24,6 @@ struct Inner {
     _server: Server,
     _http_server: HttpServer,
     _index_coordinator: IndexCoordinator,
-    _gossip_node: GossipNode,
 }
 
 pub fn run(config: &Config) -> Result<(), Error> {
@@ -83,24 +82,19 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
         None,
         None,
     )?;
+    let internal_service =
+        InternalServer::build_service(config.node_id, &kv_raft_router, &search_raft_router);
+    let gossip_service = GossipServer::build_service(config.node_id, &config.seeds);
     let server = start_rpc_server(
-        &kv_raft_router,
-        &search_raft_router,
+        vec![internal_service, gossip_service],
         config.node_id,
         config.port,
-    )?;
-    let gossip_node = GossipNode::new(
-        config.node_id,
-        &config.gossip.host,
-        config.gossip.port,
-        &config.gossip.bootstrap,
     )?;
     let http_server = start_web(config, node_router)?;
     Ok(Inner {
         _server: server,
         _http_server: http_server,
         _index_coordinator: index_coordinator,
-        _gossip_node: gossip_node,
     })
 }
 

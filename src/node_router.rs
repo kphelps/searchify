@@ -189,10 +189,7 @@ impl NodeRouter {
             })
     }
 
-    pub fn refresh_index(
-        &self,
-        index_name: &str,
-    ) -> impl Future<Item = (), Error = Error> {
+    pub fn refresh_index(&self, index_name: &str) -> impl Future<Item = (), Error = Error> {
         let peers = self.peers.clone();
         self.get_cached_index(index_name)
             .and_then(move |mut index| {
@@ -207,25 +204,19 @@ impl NodeRouter {
             .map(|_| ())
     }
 
-    pub fn refresh_shard(
-        &self,
-        shard_id: u64,
-    ) -> impl Future<Item = (), Error = Error> {
+    pub fn refresh_shard(&self, shard_id: u64) -> impl Future<Item = (), Error = Error> {
         let peers = self.peers.clone();
-        self.get_shard_by_id(shard_id)
-            .and_then(move |shard| {
-                let replica_id = shard.replicas.first().unwrap().id;
-                let client = peers.read().unwrap().get(&replica_id).cloned().unwrap();
-                client.refresh_shard(shard.id)
-            })
+        self.get_shard_by_id(shard_id).and_then(move |shard| {
+            let replica_id = shard.replicas.first().unwrap().id;
+            let client = peers.read().unwrap().get(&replica_id).cloned().unwrap();
+            client.refresh_shard(shard.id)
+        })
     }
 
-    fn get_shard_by_id(
-        &self,
-        shard_id: u64,
-    ) -> impl Future<Item = ShardState, Error = Error> {
+    fn get_shard_by_id(&self, shard_id: u64) -> impl Future<Item = ShardState, Error = Error> {
         self.list_indices().and_then(move |response| {
-            response.get_indices()
+            response
+                .get_indices()
                 .into_iter()
                 .map(|index| index.get_shards())
                 .flatten()
@@ -253,23 +244,23 @@ impl NodeRouter {
         })
     }
 
-    fn get_cached_index(&self, index_name: &str)
-       -> impl Future<Item = IndexState, Error = Error>
-    {
+    fn get_cached_index(&self, index_name: &str) -> impl Future<Item = IndexState, Error = Error> {
         let cache = self.index_cache.read().unwrap();
-        let f: Box<Future<Item=IndexState, Error=Error> + Send> = if cache.contains_key(index_name) {
-            Box::new(futures::future::ok(cache.get(index_name).cloned().unwrap()))
-        } else {
-            drop(cache);
-            Box::new(self.refresh_index_cache(index_name))
-        };
+        let f: Box<Future<Item = IndexState, Error = Error> + Send> =
+            if cache.contains_key(index_name) {
+                Box::new(futures::future::ok(cache.get(index_name).cloned().unwrap()))
+            } else {
+                drop(cache);
+                Box::new(self.refresh_index_cache(index_name))
+            };
         f
     }
 
     // TODO: Need to refresh this when routing is out of date
-    fn refresh_index_cache(&self, index_name: &str)
-        -> impl Future<Item = IndexState, Error = Error>
-    {
+    fn refresh_index_cache(
+        &self,
+        index_name: &str,
+    ) -> impl Future<Item = IndexState, Error = Error> {
         let cache = self.index_cache.clone();
         self.get_index(index_name.to_string()).map(move |index| {
             let mut locked = cache.write().unwrap();

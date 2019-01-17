@@ -111,10 +111,7 @@ impl Shard {
     }
 }
 
-fn leader_task(
-    node_router: NodeRouterHandle,
-    shard_id: u64,
-) -> TaskFn {
+fn leader_task(node_router: NodeRouterHandle, shard_id: u64) -> TaskFn {
     let f = move || -> Box<dyn Future<Item = (), Error = ()> + Send> {
         let node_router = node_router.clone();
         let fut = Interval::new_interval(Duration::from_secs(5))

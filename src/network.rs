@@ -9,7 +9,9 @@ use futures::{
     prelude::*,
     sync::oneshot::{channel, Receiver},
 };
-use grpcio::{EnvBuilder, RpcContext, RpcStatus, RpcStatusCode, Server, ServerBuilder, UnarySink};
+use grpcio::{
+    EnvBuilder, RpcContext, RpcStatus, RpcStatusCode, Server, ServerBuilder, Service, UnarySink,
+};
 use log::*;
 use protobuf::parse_from_bytes;
 use raft::eraftpb;
@@ -17,7 +19,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 #[derive(Clone)]
-struct InternalServer {
+pub struct InternalServer {
     peer_id: u64,
     kv_raft_router: RaftRouter<KeyValueStateMachine>,
     search_raft_router: RaftRouter<SearchStateMachine>,
@@ -197,6 +199,20 @@ impl Internal for InternalServer {
     }
 }
 
+impl InternalServer {
+    pub fn build_service(
+        node_id: u64,
+        kv_raft_router: &RaftRouter<KeyValueStateMachine>,
+        search_raft_router: &RaftRouter<SearchStateMachine>,
+    ) -> Service {
+        create_internal(Self {
+            peer_id: node_id,
+            kv_raft_router: kv_raft_router.clone(),
+            search_raft_router: search_raft_router.clone(),
+        })
+    }
+}
+
 fn propose_api<T, K>(
     router: &RaftRouter<K>,
     proposal: RaftPropose<K>,
@@ -234,13 +250,11 @@ where
     I: Send + 'static,
     E: Into<Error> + Send + Sync,
 {
-    let f = f.map_err(|e| e.into()).then(|out| {
-        match out {
-            Ok(value) => sink.success(value).map_err(Error::from),
-            Err(e) => {
-                let status = RpcStatus::new(RpcStatusCode::Internal, Some(format!("{}", e)));
-                sink.fail(status).map_err(Error::from)
-            }
+    let f = f.map_err(|e| e.into()).then(|out| match out {
+        Ok(value) => sink.success(value).map_err(Error::from),
+        Err(e) => {
+            let status = RpcStatus::new(RpcStatusCode::Internal, Some(format!("{}", e)));
+            sink.fail(status).map_err(Error::from)
         }
     });
     ctx.spawn(
@@ -249,22 +263,13 @@ where
     );
 }
 
-pub fn start_rpc_server(
-    kv_raft_router: &RaftRouter<KeyValueStateMachine>,
-    search_raft_router: &RaftRouter<SearchStateMachine>,
-    node_id: u64,
-    port: u16,
-) -> Result<Server, Error> {
-    let service = create_internal(InternalServer {
-        peer_id: node_id,
-        kv_raft_router: kv_raft_router.clone(),
-        search_raft_router: search_raft_router.clone(),
-    });
+pub fn start_rpc_server(services: Vec<Service>, node_id: u64, port: u16) -> Result<Server, Error> {
     let env = Arc::new(EnvBuilder::new().cq_count(32).build());
-    let mut server = ServerBuilder::new(env)
-        .register_service(service)
-        .bind("127.0.0.1", port)
-        .build()?;
+    let mut builder = ServerBuilder::new(env);
+    builder = services.into_iter().fold(builder, |builder, service| {
+        builder.register_service(service)
+    });
+    let mut server = builder.bind("127.0.0.1", port).build()?;
     server.start();
     info!("RPC Server started");
     Ok(server)

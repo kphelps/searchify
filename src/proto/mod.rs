@@ -1,3 +1,5 @@
+pub mod gossip;
+pub mod gossip_grpc;
 mod internal;
 mod internal_grpc;
 

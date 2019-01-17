@@ -37,7 +37,9 @@ where
 {
     pub fn new() -> Self {
         let inner = Inner::new();
-        Self { inner: Arc::new(RwLock::new(inner)) }
+        Self {
+            inner: Arc::new(RwLock::new(inner)),
+        }
     }
 
     pub fn register(&self, id: u64, addr: RaftClient<K>) -> impl Future<Item = (), Error = Error> {

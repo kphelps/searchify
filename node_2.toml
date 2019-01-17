@@ -12,6 +12,6 @@ port = 8081
 [gossip]
 port = 11767
 bootstrap = [
-  "localhost:11766",
-  "localhost:11768",
+  "http://localhost:11766",
+  "http://localhost:11768",
 ]

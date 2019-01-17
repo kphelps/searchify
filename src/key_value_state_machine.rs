@@ -38,7 +38,9 @@ impl RaftStateMachine for KeyValueStateMachine {
         match entry.entry.unwrap() {
             KeyValueEntry_oneof_entry::create_index(req) => self.create_index(req)?,
             KeyValueEntry_oneof_entry::delete_index(req) => self.delete_index(req)?,
-            KeyValueEntry_oneof_entry::heartbeat(heartbeat) => self.liveness_heartbeat(heartbeat)?,
+            KeyValueEntry_oneof_entry::heartbeat(heartbeat) => {
+                self.liveness_heartbeat(heartbeat)?
+            }
         }
         Ok(true)
     }
