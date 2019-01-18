@@ -10,6 +10,7 @@ pub struct Config {
     pub seeds: Vec<String>,
     pub storage_root: String,
     pub search_storage_root: Option<String>,
+    pub advertised_host: String,
     pub web: WebConfig,
     pub gossip: GossipConfig,
 }

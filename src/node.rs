@@ -84,7 +84,11 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
     )?;
     let internal_service =
         InternalServer::build_service(config.node_id, &kv_raft_router, &search_raft_router);
-    let gossip_service = GossipServer::build_service(config.node_id, &config.seeds);
+    let gossip_service = GossipServer::build_service(
+        config.node_id,
+        &config.seeds,
+        &format!("{}:{}", config.advertised_host, config.port),
+    );
     let server = start_rpc_server(
         vec![internal_service, gossip_service],
         config.node_id,

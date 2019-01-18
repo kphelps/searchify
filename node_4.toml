@@ -1,16 +1,16 @@
 advertised_host = "localhost"
-storage_root = "./data_3"
-node_id = 3
-port = 11668
+storage_root = "./data_4"
+node_id = 4
+port = 11669
 seeds = [
   "localhost:11666",
 ]
 
 [web]
-port = 8082
+port = 8083
 
 [gossip]
-port = 11768
+port = 11769
 bootstrap = [
   "localhost:11766",
   "localhost:11767",

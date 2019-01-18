@@ -1,3 +1,4 @@
+advertised_host = "localhost"
 storage_root = "./data_1"
 seeds = [
   "localhost:11667",

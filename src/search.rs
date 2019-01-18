@@ -76,13 +76,10 @@ impl Inner {
             .take_while(|item| future::ok(*item != SearchEvent::Done));
         let f = events.for_each(move |_| {
             Self::poll_node_info(this.clone())
-                .map_err(|err| warn!("Error in node polling loop: {:?}", err))
+                .map_err(|err| debug!("Error in node polling loop: {:?}", err))
                 .then(|_| Ok(()))
         });
-        tokio::spawn(f.then(|_| {
-            info!("Shard polling stopped");
-            Ok(())
-        }));
+        tokio::spawn(f.then(|_| Ok(())));
     }
 
     fn poll_node_info(this: Arc<Mutex<Self>>) -> impl Future<Item = (), Error = Error> {

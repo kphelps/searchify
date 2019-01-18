@@ -1,4 +1,6 @@
 use crate::mappings::Mappings;
+use crate::proto::gossip::*;
+use crate::proto::gossip_grpc::*;
 use crate::proto::*;
 use failure::Error;
 use futures::prelude::*;
@@ -11,6 +13,7 @@ use std::time::Duration;
 pub struct RpcClient {
     node_id: u64,
     client: InternalClient,
+    gossip_client: GossipClient,
 }
 
 fn futurize<T>(
@@ -37,7 +40,8 @@ impl RpcClient {
 
         Self {
             node_id,
-            client: InternalClient::new(channel),
+            client: InternalClient::new(channel.clone()),
+            gossip_client: GossipClient::new(channel),
         }
     }
 
@@ -45,6 +49,10 @@ impl RpcClient {
         let mut request = HelloRequest::new();
         request.peer_id = self.node_id;
         futurize(self.client.hello_async_opt(&request, self.options()))
+    }
+
+    pub fn gossip(&self, data: &GossipData) -> impl Future<Item = GossipData, Error = Error> {
+        futurize(self.gossip_client.exchange_async_opt(data, self.options()))
     }
 
     pub fn raft_message(
