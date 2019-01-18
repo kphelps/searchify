@@ -4,10 +4,14 @@ use crate::node_router::NodeRouterHandle;
 use crate::query_api::SearchQuery;
 use failure::Error;
 use futures::{prelude::*, sync::oneshot};
+use http::response::Builder;
+use http::Request;
+use log::*;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
 use tokio::net::TcpListener;
 use tower_web::*;
+use tower_web::Error as TowerError;
 
 pub struct HttpServer {
     _handle: oneshot::Sender<()>,

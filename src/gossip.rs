@@ -14,7 +14,7 @@ use tokio::timer::Interval;
 
 #[derive(Clone)]
 pub struct GossipServer {
-    state: Arc<RwLock<GossipState>>,
+    state: GossipState,
     sender: mpsc::Sender<GossipEvent>,
 }
 
@@ -27,8 +27,7 @@ impl Gossip for GossipServer {
                 .map(|_| ())
                 .map_err(|_| ()),
         );
-        let state = self.state.read().unwrap();
-        let out = state.current.clone();
+        let out = self.state.get_current();
         ctx.spawn(
             sink.success(out)
                 .map_err(|err| error!("Error exhanging gossip: {:?}", err)),
@@ -43,39 +42,44 @@ enum ClientEvent {
 }
 
 impl GossipServer {
-    pub fn build_service(node_id: u64, bootstrap: &[String], self_address: &str) -> Service {
+    pub fn new(node_id: u64, bootstrap: &[String], self_address: &str) -> Self {
         let (sender, receiver) = mpsc::channel(32);
-        let state = Arc::new(RwLock::new(GossipState::new(
+        let state = GossipState::new(
             node_id,
             self_address,
             bootstrap,
             sender.clone(),
-        )));
-        run_gossip_event_handler(receiver, Arc::downgrade(&state), node_id);
-        let server = GossipServer { state, sender };
-        create_gossip(server)
+        );
+        run_gossip_event_handler(receiver, state.new_ref(), node_id);
+        GossipServer { state, sender }
+    }
+
+    pub fn into_service(self) -> Service {
+        create_gossip(self)
+    }
+
+    pub fn state(&self) -> GossipState {
+        self.state.clone()
     }
 
     fn node_id(&self) -> u64 {
-        self.state.read().unwrap().node_id()
+        self.state.node_id()
     }
 }
 
 fn run_gossip_event_handler(
     receiver: mpsc::Receiver<GossipEvent>,
-    state: Weak<RwLock<GossipState>>,
+    state: GossipStateRef,
     self_id: u64,
 ) {
     let f = receiver.for_each(move |event| {
         match event {
             GossipEvent::NewPeerDiscovered(address) => {
                 info!("Discovered: {}", address);
-                connect_to_client(state.upgrade().unwrap(), self_id, &address);
+                connect_to_client(state.upgrade(), self_id, &address);
             }
             GossipEvent::GossipReceived(data) => {
-                let upgraded = state.upgrade().unwrap();
-                let mut locked = upgraded.write().unwrap();
-                locked.merge_gossip(data);
+                state.upgrade().merge_gossip(data);
             }
         };
         Ok(())
@@ -83,11 +87,21 @@ fn run_gossip_event_handler(
     tokio::spawn(f);
 }
 
-struct GossipState {
+#[derive(Clone)]
+pub struct GossipState {
+    inner: Arc<RwLock<InnerGossipState>>,
+}
+
+#[derive(Clone)]
+pub struct GossipStateRef {
+    inner: Weak<RwLock<InnerGossipState>>,
+}
+
+struct InnerGossipState {
     bootstrap: Vec<String>,
     current: GossipData,
     connections: HashMap<String, oneshot::Sender<()>>,
-    clients: HashMap<u64, RpcClient>,
+    clients: HashMap<String, RpcClient>,
     peers: HashMap<u64, GossipData>,
     event_publisher: mpsc::Sender<GossipEvent>,
 }
@@ -107,7 +121,7 @@ impl GossipState {
         let mut current = GossipData::new();
         current.set_node_id(node_id);
         current.set_address(self_address.to_string());
-        let state = Self {
+        let inner = InnerGossipState {
             current,
             event_publisher,
             bootstrap: bootstrap.to_vec(),
@@ -115,10 +129,65 @@ impl GossipState {
             clients: HashMap::new(),
             peers: HashMap::new(),
         };
+        inner.publish_peer_discovered(self_address);
         bootstrap
             .iter()
-            .for_each(|address| state.publish_peer_discovered(address));
-        state
+            .for_each(|address| inner.publish_peer_discovered(address));
+        Self {
+            inner: Arc::new(RwLock::new(inner)),
+        }
+    }
+
+    fn get_current(&self) -> GossipData {
+        self.inner.read().unwrap().current.clone()
+    }
+
+    fn node_id(&self) -> u64 {
+        self.inner.read().unwrap().node_id()
+    }
+
+    fn remove_connection(&self, addr: &str) {
+        self.inner.write().unwrap().remove_connection(addr)
+    }
+
+    pub fn get_client(&self, node_id: u64) -> Result<RpcClient, Error> {
+        self.inner.read().unwrap().get_client(node_id)
+    }
+
+    fn add_connection(
+        &self,
+        addr: &str,
+        sender: oneshot::Sender<()>,
+        rpc_client: RpcClient,
+    ) {
+        self.inner.write().unwrap().add_connection(addr, sender, rpc_client)
+    }
+
+    fn merge_gossip(&self, gossip: GossipData) {
+        self.inner.write().unwrap().merge_gossip(gossip)
+    }
+
+    fn new_ref(&self) -> GossipStateRef {
+        GossipStateRef {
+            inner: Arc::downgrade(&self.inner),
+        }
+    }
+}
+
+impl GossipStateRef {
+    fn upgrade(&self) -> GossipState {
+        GossipState {
+            inner: self.inner.upgrade().unwrap(),
+        }
+    }
+}
+
+impl InnerGossipState {
+    fn get_client(&self, node_id: u64) -> Result<RpcClient, Error> {
+        self.peers.get(&node_id)
+            .and_then(|gossip| self.clients.get(gossip.get_address()))
+            .cloned()
+            .ok_or_else(|| format_err!("Not connected to '{}'", node_id))
     }
 
     fn node_id(&self) -> u64 {
@@ -127,10 +196,17 @@ impl GossipState {
 
     fn remove_connection(&mut self, addr: &str) {
         self.connections.remove(addr);
+        self.clients.remove(addr);
     }
 
-    fn add_connection(&mut self, addr: &str, sender: oneshot::Sender<()>) {
+    fn add_connection(
+        &mut self,
+        addr: &str,
+        sender: oneshot::Sender<()>,
+        client: RpcClient,
+    ) {
         self.connections.insert(addr.to_string(), sender);
+        self.clients.insert(addr.to_string(), client);
     }
 
     fn merge_gossip(&mut self, gossip: GossipData) {
@@ -142,7 +218,7 @@ impl GossipState {
         gossip
             .get_peer_addresses()
             .iter()
-            .filter(|(id, _)| !self.peers.contains_key(id) && **id != self.node_id())
+            .filter(|(id, _)| !self.peers.contains_key(id))
             .for_each(|(_, address)| self.publish_peer_discovered(address));
 
         self.peers.insert(peer_id, gossip);
@@ -159,14 +235,14 @@ impl GossipState {
 }
 
 struct ClientContext {
-    state: Weak<RwLock<GossipState>>,
+    state: GossipStateRef,
     client: RpcClient,
 }
 
-fn connect_to_client(state: Arc<RwLock<GossipState>>, self_id: u64, address: &str) {
+fn connect_to_client(state: GossipState, self_id: u64, address: &str) {
     let client = RpcClient::new(self_id, address);
     let (sender, receiver) = oneshot::channel();
-    state.write().unwrap().add_connection(address, sender);
+    state.add_connection(address, sender, client.clone());
     let gossip_stream = Interval::new(Instant::now(), Duration::from_secs(5))
         .map(|_| ClientEvent::GossipTick)
         .map_err(|err| error!("Error in gossip tick: {:?}", err));
@@ -179,28 +255,23 @@ fn connect_to_client(state: Arc<RwLock<GossipState>>, self_id: u64, address: &st
         .select(close_stream)
         .take_while(|item| Ok(*item != ClientEvent::Done))
         .for_each(move |event| sender.clone().send(event).map_err(|_| ()).map(|_| ()));
-    let consumer = ClientContext::new(Arc::downgrade(&state), client).run(receiver);
+    let consumer = ClientContext::new(state.new_ref(), client).run(receiver);
     tokio::spawn(consumer);
     tokio::spawn(producer);
 }
 
 impl ClientContext {
-    pub fn new(state: Weak<RwLock<GossipState>>, client: RpcClient) -> Self {
+    pub fn new(state: GossipStateRef, client: RpcClient) -> Self {
         Self { state, client }
     }
 
     pub fn run(self, receiver: mpsc::Receiver<ClientEvent>) -> impl Future<Item = (), Error = ()> {
         receiver.for_each(move |_event| {
-            let state = self.state.upgrade().unwrap();
-            let current_gossip = {
-                let locked_state = state.read().unwrap();
-                locked_state.current.clone()
-            };
+            let state = self.state.upgrade();
+            let current_gossip = state.get_current();
             self.client
                 .gossip(&current_gossip)
-                .map(move |gossip| {
-                    state.write().unwrap().merge_gossip(gossip);
-                })
+                .map(move |gossip| state.merge_gossip(gossip))
                 .then(|_| Ok(()))
         })
     }

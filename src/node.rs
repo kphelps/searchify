@@ -60,7 +60,12 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
     let kv_raft_router = RaftRouter::new();
     let search_raft_router = RaftRouter::new();
 
-    let node_router = NodeRouter::start(&config)?;
+    let gossip_server = GossipServer::new(
+        config.node_id,
+        &config.seeds,
+        &format!("{}:{}", config.advertised_host, config.port),
+    );
+    let node_router = NodeRouter::start(&config, gossip_server.state())?;
     let group_states = get_raft_groups(&storage_engine)?;
     let index_coordinator = IndexCoordinator::start(
         &config,
@@ -84,13 +89,8 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
     )?;
     let internal_service =
         InternalServer::build_service(config.node_id, &kv_raft_router, &search_raft_router);
-    let gossip_service = GossipServer::build_service(
-        config.node_id,
-        &config.seeds,
-        &format!("{}:{}", config.advertised_host, config.port),
-    );
     let server = start_rpc_server(
-        vec![internal_service, gossip_service],
+        vec![internal_service, gossip_server.into_service()],
         config.node_id,
         config.port,
     )?;

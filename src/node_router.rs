@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::gossip::GossipState;
 use crate::mappings::Mappings;
 use crate::proto::*;
 use crate::rpc_client::RpcClient;
@@ -19,6 +20,7 @@ use tokio_timer::Interval;
 
 pub struct NodeRouter {
     node_id: u64,
+    gossip_state: GossipState,
     peers: Arc<RwLock<HashMap<u64, RpcClient>>>,
     leader_id: AtomicUsize,
     tasks: Arc<Mutex<Vec<oneshot::Sender<()>>>>,
@@ -31,7 +33,10 @@ pub struct NodeRouterHandle {
 }
 
 impl NodeRouter {
-    fn new(config: &Config) -> Self {
+    fn new(
+        config: &Config,
+        gossip_state: GossipState,
+    ) -> Self {
         let mut clients = HashMap::new();
         let self_address = format!("127.0.0.1:{}", config.port);
         clients.insert(
@@ -39,6 +44,7 @@ impl NodeRouter {
             RpcClient::new(config.node_id, &self_address),
         );
         Self {
+            gossip_state,
             node_id: config.node_id,
             peers: Arc::new(RwLock::new(clients)),
             leader_id: AtomicUsize::new(0),
@@ -47,8 +53,11 @@ impl NodeRouter {
         }
     }
 
-    pub fn start(config: &Config) -> Result<NodeRouterHandle, Error> {
-        let router = NodeRouter::new(config);
+    pub fn start(
+        config: &Config,
+        gossip_state: GossipState,
+    ) -> Result<NodeRouterHandle, Error> {
+        let router = NodeRouter::new(config, gossip_state);
         let handle = NodeRouterHandle {
             handle: Arc::new(router),
         };
@@ -66,11 +75,6 @@ impl NodeRouter {
         let t = heartbeat_task.select(handle.handle.task().map_err(|_| ()));
         tokio::spawn(t.then(|_| Ok(())));
 
-        config.seeds.iter().for_each(|seed| {
-            let peer_task = handle.connect_to_peer(seed);
-            tokio::spawn(peer_task);
-        });
-
         Ok(handle)
     }
 
@@ -78,26 +82,6 @@ impl NodeRouter {
         let (sender, receiver) = oneshot::channel();
         self.tasks.lock().unwrap().push(sender);
         receiver
-    }
-
-    pub fn connect_to_peer(&self, peer_address: &str) -> impl Future<Item = (), Error = ()> {
-        let peers = self.peers.clone();
-        let client = RpcClient::new(self.node_id, peer_address);
-        let f = move || {
-            let peers = peers.clone();
-            let client = client.clone();
-            client.hello().map(move |response| {
-                peers.write().unwrap().insert(response.peer_id, client);
-                info!("Connected to peer id '{}'", response.peer_id);
-            })
-        };
-        let retry_strategy = ExponentialBackoff::from_millis(300)
-            .max_delay(Duration::from_secs(10))
-            .map(jitter);
-        Retry::spawn(retry_strategy, f)
-            .map_err(|err| error!("Connect retry failed: {:?}", err))
-            .select(self.task().map_err(|_| ()))
-            .then(|_| Ok(()))
     }
 
     pub fn route_raft_message(
@@ -155,15 +139,13 @@ impl NodeRouter {
         document_id: u64,
         payload: serde_json::Value,
     ) -> impl Future<Item = (), Error = Error> {
-        // TODO: should get handle, not clone
-        let x = std::time::Instant::now();
-        let peers = self.peers.clone();
+        let resolver = self.gossip_state.clone();
         self.get_shard_for_document(&index_name, document_id)
             .and_then(move |shard| {
                 let replica_id = shard.replicas.first().unwrap().id;
-                let client = peers.read().unwrap().get(&replica_id).cloned().unwrap();
-                info!("Hello: {:?}", x.elapsed());
-                client.index_document(&index_name, shard.id, payload)
+                resolver.get_client(replica_id)
+                    .into_future()
+                    .and_then(move |client| client.index_document(&index_name, shard.id, payload))
             })
     }
 
@@ -172,15 +154,17 @@ impl NodeRouter {
         index_name: String,
         query: Vec<u8>,
     ) -> impl Future<Item = (), Error = Error> {
-        let peers = self.peers.clone();
+        let resolver = self.gossip_state.clone();
         self.get_index(index_name.to_string())
             .and_then(move |index| {
                 let futures = index.shards.into_iter().map(move |shard| {
+                    let query = query.clone();
+                    let index_name = index_name.clone();
                     let replica_id = shard.replicas.first().unwrap().id;
-                    let client = peers.read().unwrap().get(&replica_id).cloned().unwrap();
                     // lift the future error up into the response so we can join all
-                    client
-                        .search(&index_name, shard.id, query.clone())
+                    resolver.get_client(replica_id)
+                        .into_future()
+                        .and_then(move |client| client.search(&index_name, shard.id, query.clone()))
                         .then(future::ok)
                 });
                 future::join_all(futures).map(|results| {
@@ -190,14 +174,14 @@ impl NodeRouter {
     }
 
     pub fn refresh_index(&self, index_name: &str) -> impl Future<Item = (), Error = Error> {
-        let peers = self.peers.clone();
+        let resolver = self.gossip_state.clone();
         self.get_cached_index(index_name)
             .and_then(move |mut index| {
                 let shards = index.take_shards().into_iter().map(move |shard| {
-                    let peers = peers.read().unwrap();
                     let replica_id = shard.replicas.first().unwrap().id;
-                    let client = peers.get(&replica_id).cloned().unwrap();
-                    client.refresh_shard(shard.id)
+                    resolver.get_client(replica_id)
+                        .into_future()
+                        .and_then(move |client| client.refresh_shard(shard.id))
                 });
                 future::join_all(shards)
             })
@@ -205,11 +189,12 @@ impl NodeRouter {
     }
 
     pub fn refresh_shard(&self, shard_id: u64) -> impl Future<Item = (), Error = Error> {
-        let peers = self.peers.clone();
+        let resolver = self.gossip_state.clone();
         self.get_shard_by_id(shard_id).and_then(move |shard| {
             let replica_id = shard.replicas.first().unwrap().id;
-            let client = peers.read().unwrap().get(&replica_id).cloned().unwrap();
-            client.refresh_shard(shard.id)
+            resolver.get_client(replica_id)
+                .into_future()
+                .and_then(move |client| client.refresh_shard(shard.id))
         })
     }
 
@@ -270,11 +255,7 @@ impl NodeRouter {
     }
 
     fn peer(&self, id: u64) -> Result<RpcClient, Error> {
-        let peers = self.peers.read().unwrap();
-        peers
-            .get(&id)
-            .cloned()
-            .ok_or_else(|| format_err!("peer '{}' not found", id))
+        self.gossip_state.get_client(id)
     }
 
     fn leader_id(&self) -> u64 {

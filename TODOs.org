@@ -5,7 +5,7 @@
 
 * Release Tasks
   
-** 0.1 [19%]
+** 0.1 [21%]
   :PROPERTIES:
   :COOKIE_DATA: todo recursive
   :END:
@@ -25,14 +25,15 @@
 **** TODO Cluster Health API
 **** TODO Index Exists
      - tower-web doesn't support HEAD. Need to implement it there.
-*** Clustering [0/7]
+*** Clustering [1/8]
 **** TODO Allow nodes to join without joining the master raft group
 **** TODO Allocate unallocated shards when a node joins the cluster
 **** TODO Detect when a node leaves the cluster
      - Use a timeout (like 3 minutes)
 **** TODO De-allocate shard when a node leaves the cluster
 **** TODO Remove inter-node polling
-**** TODO Gossip infrastructure
+**** DONE Gossip infrastructure - Discovery
+     CLOSED: [2019-01-18 Fri 08:10]
 **** TODO Cache shard routing information
      - Done for indices. Need to figure out when to refresh it and do it for shard-level routing
 *** Indexing [1/4]
@@ -93,7 +94,7 @@
 **** TODO Half Float
 **** TODO Scaled Float
 **** TODO Binary
-*** Clustering [0/3]
+*** Clustering [0/4]
 **** TODO Replica sets should have a lease holder
     - https://github.com/cockroachdb/cockroach/blob/master/docs/design.md#range-leases
 **** TODO Direct all reads at the lease holder
