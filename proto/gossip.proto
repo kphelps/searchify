@@ -11,4 +11,5 @@ message GossipData {
   uint64 sequence_id = 2;
   map<uint64, string> peer_addresses = 3;
   string address = 4;
+  uint64 meta_leader_id = 5;
 }

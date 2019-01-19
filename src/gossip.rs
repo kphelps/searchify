@@ -1,7 +1,7 @@
 use crate::proto::gossip::*;
 use crate::proto::gossip_grpc::*;
 use crate::rpc_client::RpcClient;
-use failure::{format_err, Error};
+use failure::{format_err, err_msg, Error};
 use futures::prelude::*;
 use futures::stream;
 use futures::sync::{mpsc, oneshot};
@@ -54,8 +54,8 @@ impl GossipServer {
         GossipServer { state, sender }
     }
 
-    pub fn into_service(self) -> Service {
-        create_gossip(self)
+    pub fn build_service(&self) -> Service {
+        create_gossip(self.clone())
     }
 
     pub fn state(&self) -> GossipState {
@@ -64,6 +64,13 @@ impl GossipServer {
 
     fn node_id(&self) -> u64 {
         self.state.node_id()
+    }
+
+    pub fn update_meta_leader(&self, id: u64) -> impl Future<Item = (), Error = ()> {
+        self.sender.clone()
+            .send(GossipEvent::MetaLeaderChanged(id))
+            .map(|_| ())
+            .map_err(|_| ())
     }
 }
 
@@ -77,10 +84,13 @@ fn run_gossip_event_handler(
             GossipEvent::NewPeerDiscovered(address) => {
                 info!("Discovered: {}", address);
                 connect_to_client(state.upgrade(), self_id, &address);
-            }
+            },
             GossipEvent::GossipReceived(data) => {
                 state.upgrade().merge_gossip(data);
-            }
+            },
+            GossipEvent::MetaLeaderChanged(id) => {
+                state.upgrade().update_meta_leader(id);
+            },
         };
         Ok(())
     });
@@ -109,6 +119,7 @@ struct InnerGossipState {
 enum GossipEvent {
     GossipReceived(GossipData),
     NewPeerDiscovered(String),
+    MetaLeaderChanged(u64),
 }
 
 impl GossipState {
@@ -154,6 +165,13 @@ impl GossipState {
         self.inner.read().unwrap().get_client(node_id)
     }
 
+    pub fn get_meta_leader_client(&self) -> Result<RpcClient, Error> {
+        let locked = self.inner.read().unwrap();
+        locked.meta_leader_id()
+            .ok_or_else(|| err_msg("Leader not available"))
+            .and_then(|node_id| self.get_client(node_id))
+    }
+
     fn add_connection(
         &self,
         addr: &str,
@@ -165,6 +183,10 @@ impl GossipState {
 
     fn merge_gossip(&self, gossip: GossipData) {
         self.inner.write().unwrap().merge_gossip(gossip)
+    }
+
+    pub fn update_meta_leader(&self, node_id: u64) {
+        self.inner.write().unwrap().update_meta_leader(node_id)
     }
 
     fn new_ref(&self) -> GossipStateRef {
@@ -231,6 +253,20 @@ impl InnerGossipState {
 
     fn publish_peer_discovered(&self, address: &str) {
         self.publish_event(GossipEvent::NewPeerDiscovered(address.to_string()));
+    }
+
+    fn update_meta_leader(&mut self, node_id: u64) {
+        self.current.set_meta_leader_id(node_id);
+    }
+
+    fn meta_leader_id(&self) -> Option<u64> {
+        if self.current.meta_leader_id != 0 {
+            return Some(self.current.meta_leader_id)
+        }
+
+        self.peers.values()
+            .find(|peer| peer.meta_leader_id != 0)
+            .map(|peer| peer.meta_leader_id)
     }
 }
 

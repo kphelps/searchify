@@ -45,12 +45,6 @@ impl RpcClient {
         }
     }
 
-    pub fn hello(&self) -> impl Future<Item = HelloResponse, Error = Error> {
-        let mut request = HelloRequest::new();
-        request.peer_id = self.node_id;
-        futurize(self.client.hello_async_opt(&request, self.options()))
-    }
-
     pub fn gossip(&self, data: &GossipData) -> impl Future<Item = GossipData, Error = Error> {
         futurize(self.gossip_client.exchange_async_opt(data, self.options()))
     }

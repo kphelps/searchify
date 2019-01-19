@@ -97,6 +97,7 @@
 *** Clustering [0/4]
 **** TODO Replica sets should have a lease holder
     - https://github.com/cockroachdb/cockroach/blob/master/docs/design.md#range-leases
+      https://github.com/cockroachdb/cockroach/blob/master/docs/RFCS/20160210_range_leases.md
 **** TODO Direct all reads at the lease holder
 **** TODO Heartbeat at the node level, not the shard level
 ** 0.3 [0%]

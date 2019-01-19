@@ -1,3 +1,4 @@
+use crate::event_emitter::EventEmitter;
 use crate::node_router::NodeRouterHandle;
 use crate::proto::EntryContext;
 use crate::raft_router::RaftRouter;
@@ -21,10 +22,16 @@ use raft::{
 use std::boxed::Box;
 use std::clone::Clone;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::timer::Interval;
 
 pub type TaskFn = Box<dyn Fn() -> Box<dyn Future<Item = (), Error = ()> + Send> + Send>;
+
+#[derive(Clone)]
+pub enum RaftEvent {
+    LeaderChanged(u64),
+}
 
 struct RaftState<T> {
     state_machine: T,
@@ -38,6 +45,7 @@ struct RaftState<T> {
     follower_task: Option<TaskFn>,
     _role_task_handle: Option<oneshot::Sender<()>>,
     observers: HashMap<u64, Box<StateMachineObserver<T> + Send + Sync + 'static>>,
+    event_emitter: EventEmitter<RaftEvent>,
 }
 
 enum RaftStateMessage<T>
@@ -53,6 +61,7 @@ where
     T: RaftStateMachine + 'static,
 {
     sender: mpsc::Sender<RaftStateMessage<T>>,
+    inner: Arc<Mutex<RaftState<T>>>,
 }
 
 impl<T> Clone for RaftClient<T>
@@ -62,6 +71,7 @@ where
     fn clone(&self) -> Self {
         Self {
             sender: self.sender.clone(),
+            inner: self.inner.clone(),
         }
     }
 }
@@ -170,8 +180,9 @@ where
             follower_task,
         )?;
         let group_id = state.raft_group_id;
-        state.run(receiver, Duration::from_millis(200));
-        let client = Self { sender };
+        let inner = Arc::new(Mutex::new(state));
+        RaftState::run(inner.clone(), receiver, Duration::from_millis(200));
+        let client = Self { sender, inner };
         client.register(group_id, raft_router);
         Ok(client)
     }
@@ -196,6 +207,10 @@ where
 
     fn send(&self, event: RaftStateMessage<T>) -> impl Future<Item = (), Error = Error> {
         self.sender.clone().send(event).map(|_| ()).from_err()
+    }
+
+    pub fn subscribe(&self) -> mpsc::Receiver<RaftEvent> {
+        self.inner.lock().unwrap().event_emitter.subscribe()
     }
 }
 
@@ -265,12 +280,17 @@ where
             leader_task,
             follower_task,
             _role_task_handle: None,
+            event_emitter: EventEmitter::new(16),
         };
         state.handle_role_change();
         Ok(state)
     }
 
-    fn run(mut self, receiver: mpsc::Receiver<RaftStateMessage<T>>, tick_interval: Duration) {
+    fn run(
+        this: Arc<Mutex<Self>>,
+        receiver: mpsc::Receiver<RaftStateMessage<T>>,
+        tick_interval: Duration,
+    ) {
         let tick_stream = Interval::new_interval(tick_interval)
             .map(|_| StateEvent::Tick)
             .map_err(|err| error!("Error in raft tick loop: {:?}", err));
@@ -280,7 +300,7 @@ where
             .select(tick_stream)
             .take_while(|item| future::ok(!item.is_done()));
         let f = message_stream.for_each(move |event| {
-            if let Err(err) = self.handle_event(event) {
+            if let Err(err) = this.lock().unwrap().handle_event(event) {
                 debug!("Raft event failure: {:?}", err)
             }
             Ok(())
@@ -331,7 +351,7 @@ where
     fn update_leader_id(&mut self) {
         if self.leader_id != self.raft_node.raft.leader_id {
             self.leader_id = self.raft_node.raft.leader_id;
-            self.node_router.set_leader_id(self.leader_id);
+            self.event_emitter.emit(RaftEvent::LeaderChanged(self.leader_id));
         }
     }
 

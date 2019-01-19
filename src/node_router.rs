@@ -65,12 +65,11 @@ impl NodeRouter {
         let heartbeat_handle = Arc::downgrade(&handle.handle);
         let heartbeat_task = Interval::new_interval(Duration::from_secs(5))
             .map_err(|_| ())
-            .for_each(move |_| {
-                heartbeat_handle
-                    .upgrade()
-                    .ok_or(())
-                    .into_future()
-                    .and_then(|handle| handle.send_heartbeat().then(|_| Ok(())))
+            .and_then(move |_| heartbeat_handle.upgrade().ok_or(()))
+            .for_each(move |handle| {
+                handle.send_heartbeat()
+                    .map_err(|err| warn!("Error sending heartbeat: {:?}", err))
+                    .then(|_| Ok(()))
             });
         let t = heartbeat_task.select(handle.handle.task().map_err(|_| ()));
         tokio::spawn(t.then(|_| Ok(())));
@@ -258,13 +257,8 @@ impl NodeRouter {
         self.gossip_state.get_client(id)
     }
 
-    fn leader_id(&self) -> u64 {
-        self.leader_id.load(Ordering::Relaxed) as u64
-    }
-
     fn leader_client(&self) -> Result<RpcClient, Error> {
-        let id = self.leader_id();
-        self.peer(id).map_err(|_| err_msg("no leader available"))
+        self.gossip_state.get_meta_leader_client()
     }
 
     fn with_leader_client<F, X, R>(&self, f: F) -> impl Future<Item = R, Error = Error>

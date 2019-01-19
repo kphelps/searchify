@@ -26,13 +26,6 @@ pub struct InternalServer {
 }
 
 impl Internal for InternalServer {
-    fn hello(&mut self, ctx: RpcContext, req: HelloRequest, sink: UnarySink<HelloResponse>) {
-        info!("Connection from peer '{}'", req.peer_id);
-        let mut resp = HelloResponse::new();
-        resp.peer_id = self.peer_id;
-        ctx.spawn(sink.success(resp).map(|_| ()).map_err(|_| ()));
-    }
-
     fn heartbeat(
         &mut self,
         ctx: RpcContext,

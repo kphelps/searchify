@@ -4,7 +4,7 @@ use crate::key_value_state_machine::KeyValueStateMachine;
 use crate::network::{start_rpc_server, InternalServer};
 use crate::node_router::NodeRouter;
 use crate::proto::{RaftGroupMetaState, RaftGroupType};
-use crate::raft::RaftClient;
+use crate::raft::{RaftClient, RaftEvent};
 use crate::raft_router::RaftRouter;
 use crate::raft_storage::{
     init_raft_group, RaftStorage, LOCAL_PREFIX, RAFT_GROUP_META_PREFIX, RAFT_GROUP_META_PREFIX_KEY,
@@ -78,7 +78,7 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
     let storage = RaftStorage::new(group_state, storage_engine)?;
     let kv_engine = StorageEngine::new(&storage_root.join("kv"))?;
     let kv_state_machine = KeyValueStateMachine::new(kv_engine)?;
-    let _raft = RaftClient::new(
+    let meta_raft = RaftClient::new(
         config.node_id,
         storage,
         kv_state_machine,
@@ -90,11 +90,17 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
     let internal_service =
         InternalServer::build_service(config.node_id, &kv_raft_router, &search_raft_router);
     let server = start_rpc_server(
-        vec![internal_service, gossip_server.into_service()],
+        vec![internal_service, gossip_server.build_service()],
         config.node_id,
         config.port,
     )?;
     let http_server = start_web(config, node_router)?;
+    let leader_update_task = meta_raft.subscribe()
+        .filter_map(|event| match event {
+            RaftEvent::LeaderChanged(id) => Some(id),
+        })
+        .for_each(move |leader_id| gossip_server.update_meta_leader(leader_id));
+    tokio::spawn(leader_update_task);
     Ok(Inner {
         _server: server,
         _http_server: http_server,

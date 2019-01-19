@@ -3,7 +3,6 @@ syntax = "proto3";
 package searchify;
 
 service Internal {
-  rpc Hello(HelloRequest) returns (HelloResponse) {}
   rpc RaftMessage(SearchifyRaftMessage) returns (EmptyResponse) {}
   rpc Heartbeat(HeartbeatRequest) returns (EmptyResponse) {}
 
