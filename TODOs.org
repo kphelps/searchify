@@ -1,14 +1,10 @@
 #+TODO: TODO DOING | DONE
 
 * Current Notes
-  
-Liveness is currently intertwined with gossip - clearly wrong
-Gossip should just drop clients after a number of failed gossips
-Liveness will be used for leaseholders and shard allocation later
 
 * Release Tasks
   
-** 0.1 [25%]
+** 0.1 [29%]
   :PROPERTIES:
   :COOKIE_DATA: todo recursive
   :END:
@@ -28,8 +24,9 @@ Liveness will be used for leaseholders and shard allocation later
 **** TODO Cluster Health API
 **** TODO Index Exists
      - tower-web doesn't support HEAD. Need to implement it there.
-*** Clustering [2/7]
-**** DOING Allow nodes to join without joining the master raft group
+*** Clustering [3/7]
+**** DONE Allow nodes to join without joining the master raft group
+     CLOSED: [2019-01-20 Sun 11:28]
 **** TODO Allocate unallocated shards when a node joins the cluster
 **** DONE Detect when a node leaves the cluster
      CLOSED: [2019-01-20 Sun 10:29]

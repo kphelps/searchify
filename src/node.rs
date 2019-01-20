@@ -3,7 +3,7 @@ use crate::config::Config;
 use crate::gossip::GossipServer;
 use crate::key_value_state_machine::{KeyValueStateMachine, MetaStateEvent};
 use crate::network::{start_rpc_server, InternalServer};
-use crate::node_router::NodeRouter;
+use crate::node_router::{NodeRouter, NodeRouterHandle};
 use crate::proto::{RaftGroupMetaState, RaftGroupType};
 use crate::raft::{RaftClient, RaftEvent};
 use crate::raft_router::RaftRouter;
@@ -77,10 +77,6 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
         &group_states,
         &search_raft_router,
     )?;
-    let group_state = group_states[0].clone();
-    let storage = RaftStorage::new(group_state, storage_engine)?;
-    let kv_engine = StorageEngine::new(&storage_root.join("kv"))?;
-    let mut kv_state_machine = KeyValueStateMachine::new(kv_engine, clock.clone())?;
     let internal_service = InternalServer::build_service(
         config.node_id,
         clock.clone(),
@@ -93,6 +89,56 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
         config.port,
     )?;
     let http_server = start_web(config, node_router.clone())?;
+    start_master_process(
+        &config,
+        &group_states,
+        &storage_root,
+        &storage_engine,
+        gossip_server,
+        &node_router,
+        &kv_raft_router,
+        &clock,
+    )?;
+    Ok(Inner {
+        _server: server,
+        _http_server: http_server,
+        _index_coordinator: index_coordinator,
+    })
+}
+
+fn init_node(master_ids: &[u64], engine: &StorageEngine) -> Result<(), Error> {
+    init_raft_group(engine, 0, master_ids, RaftGroupType::RAFT_GROUP_META)
+}
+
+fn get_raft_groups(engine: &StorageEngine) -> Result<Vec<RaftGroupMetaState>, Error> {
+    let end_key: Vec<u8> = vec![LOCAL_PREFIX, RAFT_GROUP_META_PREFIX + 1];
+    let mut out = Vec::new();
+    engine.scan(RAFT_GROUP_META_PREFIX_KEY, end_key, |_, value| {
+        out.push(parse_from_bytes(value)?);
+        Ok(true)
+    })?;
+
+    Ok(out)
+}
+
+fn start_master_process(
+    config: &Config,
+    group_states: &[RaftGroupMetaState],
+    storage_root: &Path,
+    storage_engine: &StorageEngine,
+    gossip_server: GossipServer,
+    node_router: &NodeRouterHandle,
+    kv_raft_router: &RaftRouter<KeyValueStateMachine>,
+    clock: &Clock,
+) -> Result<(), Error> {
+    if !config.master_ids.contains(&config.node_id) {
+        return Ok(());
+    }
+
+    let group_state = group_states[0].clone();
+    let storage = RaftStorage::new(group_state, storage_engine.clone())?;
+    let kv_engine = StorageEngine::new(&storage_root.join("kv"))?;
+    let mut kv_state_machine = KeyValueStateMachine::new(kv_engine, clock.clone())?;
     let liveness_gossip = gossip_server.clone();
     let liveness_update_task = kv_state_machine.subscribe()
         .filter_map(|event| match event {
@@ -115,26 +161,7 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
         })
         .for_each(move |leader_id| gossip_server.update_meta_leader(leader_id));
     tokio::spawn(leader_update_task);
-    Ok(Inner {
-        _server: server,
-        _http_server: http_server,
-        _index_coordinator: index_coordinator,
-    })
-}
-
-fn init_node(master_ids: &[u64], engine: &StorageEngine) -> Result<(), Error> {
-    init_raft_group(engine, 0, master_ids, RaftGroupType::RAFT_GROUP_META)
-}
-
-fn get_raft_groups(engine: &StorageEngine) -> Result<Vec<RaftGroupMetaState>, Error> {
-    let end_key: Vec<u8> = vec![LOCAL_PREFIX, RAFT_GROUP_META_PREFIX + 1];
-    let mut out = Vec::new();
-    engine.scan(RAFT_GROUP_META_PREFIX_KEY, end_key, |_, value| {
-        out.push(parse_from_bytes(value)?);
-        Ok(true)
-    })?;
-
-    Ok(out)
+    Ok(())
 }
 
 #[cfg(test)]
