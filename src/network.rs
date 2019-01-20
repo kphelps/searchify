@@ -1,3 +1,4 @@
+use crate::clock::Clock;
 use crate::key_value_state_machine::KeyValueStateMachine;
 use crate::mappings::Mappings;
 use crate::proto::*;
@@ -17,9 +18,11 @@ use protobuf::parse_from_bytes;
 use raft::eraftpb;
 use std::fmt::Debug;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Clone)]
 pub struct InternalServer {
+    clock: Clock,
     peer_id: u64,
     kv_raft_router: RaftRouter<KeyValueStateMachine>,
     search_raft_router: RaftRouter<SearchStateMachine>,
@@ -34,7 +37,8 @@ impl Internal for InternalServer {
     ) {
         debug!("Heartbeat from '{}'", req.get_peer().get_id());
         let (sender, receiver) = channel();
-        let proposal = KeyValueStateMachine::propose_heartbeat(req, sender);
+        let expires_at = self.clock.for_expiration_in(Duration::from_secs(15));
+        let proposal = KeyValueStateMachine::propose_heartbeat(req, expires_at, sender);
         propose_api(&self.kv_raft_router, proposal, receiver, ctx, sink);
     }
 
@@ -195,10 +199,12 @@ impl Internal for InternalServer {
 impl InternalServer {
     pub fn build_service(
         node_id: u64,
+        clock: Clock,
         kv_raft_router: &RaftRouter<KeyValueStateMachine>,
         search_raft_router: &RaftRouter<SearchStateMachine>,
     ) -> Service {
         create_internal(Self {
+            clock: clock,
             peer_id: node_id,
             kv_raft_router: kv_raft_router.clone(),
             search_raft_router: search_raft_router.clone(),
@@ -256,7 +262,7 @@ where
     );
 }
 
-pub fn start_rpc_server(services: Vec<Service>, node_id: u64, port: u16) -> Result<Server, Error> {
+pub fn start_rpc_server(services: Vec<Service>, _node_id: u64, port: u16) -> Result<Server, Error> {
     let env = Arc::new(EnvBuilder::new().cq_count(32).build());
     let mut builder = ServerBuilder::new(env);
     builder = services.into_iter().fold(builder, |builder, service| {

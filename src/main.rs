@@ -7,6 +7,7 @@ mod storage_engine;
 
 mod cached_persistent_cell;
 mod cached_persistent_map;
+mod clock;
 mod config;
 mod event_emitter;
 mod gossip;

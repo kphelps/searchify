@@ -3,26 +3,16 @@ use crate::gossip::GossipState;
 use crate::mappings::Mappings;
 use crate::proto::*;
 use crate::rpc_client::RpcClient;
-use failure::{err_msg, format_err, Error};
+use failure::{err_msg, Error};
 use futures::{future, prelude::*, sync::oneshot};
 use log::*;
 use std::collections::HashMap;
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc, Mutex, RwLock,
-};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
-use tokio_retry::{
-    strategy::{jitter, ExponentialBackoff},
-    Retry,
-};
 use tokio_timer::Interval;
 
 pub struct NodeRouter {
-    node_id: u64,
     gossip_state: GossipState,
-    peers: Arc<RwLock<HashMap<u64, RpcClient>>>,
-    leader_id: AtomicUsize,
     tasks: Arc<Mutex<Vec<oneshot::Sender<()>>>>,
     index_cache: Arc<RwLock<HashMap<String, IndexState>>>,
 }
@@ -45,9 +35,6 @@ impl NodeRouter {
         );
         Self {
             gossip_state,
-            node_id: config.node_id,
-            peers: Arc::new(RwLock::new(clients)),
-            leader_id: AtomicUsize::new(0),
             tasks: Arc::new(Mutex::new(Vec::new())),
             index_cache: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -126,10 +113,6 @@ impl NodeRouter {
 
     pub fn send_heartbeat(&self) -> impl Future<Item = (), Error = Error> {
         self.with_leader_client(|client| client.heartbeat())
-    }
-
-    pub fn set_leader_id(&self, id: u64) {
-        self.leader_id.store(id as usize, Ordering::Relaxed);
     }
 
     pub fn index_document(

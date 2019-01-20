@@ -1,6 +1,7 @@
+use crate::clock::Clock;
 use crate::config::Config;
 use crate::gossip::GossipServer;
-use crate::key_value_state_machine::KeyValueStateMachine;
+use crate::key_value_state_machine::{KeyValueStateMachine, MetaStateEvent};
 use crate::network::{start_rpc_server, InternalServer};
 use crate::node_router::NodeRouter;
 use crate::proto::{RaftGroupMetaState, RaftGroupType};
@@ -57,6 +58,7 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
     let storage_engine = StorageEngine::new(&storage_root.join("cluster"))?;
     init_node(&config.master_ids, &storage_engine)?;
 
+    let clock = Clock::new();
     let kv_raft_router = RaftRouter::new();
     let search_raft_router = RaftRouter::new();
 
@@ -64,6 +66,7 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
         config.node_id,
         &config.seeds,
         &format!("{}:{}", config.advertised_host, config.port),
+        clock.clone(),
     );
     let node_router = NodeRouter::start(&config, gossip_server.state())?;
     let group_states = get_raft_groups(&storage_engine)?;
@@ -77,7 +80,26 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
     let group_state = group_states[0].clone();
     let storage = RaftStorage::new(group_state, storage_engine)?;
     let kv_engine = StorageEngine::new(&storage_root.join("kv"))?;
-    let kv_state_machine = KeyValueStateMachine::new(kv_engine)?;
+    let mut kv_state_machine = KeyValueStateMachine::new(kv_engine, clock.clone())?;
+    let internal_service = InternalServer::build_service(
+        config.node_id,
+        clock.clone(),
+        &kv_raft_router,
+        &search_raft_router,
+    );
+    let server = start_rpc_server(
+        vec![internal_service, gossip_server.build_service()],
+        config.node_id,
+        config.port,
+    )?;
+    let http_server = start_web(config, node_router.clone())?;
+    let liveness_gossip = gossip_server.clone();
+    let liveness_update_task = kv_state_machine.subscribe()
+        .filter_map(|event| match event {
+            MetaStateEvent::PeerUpdate(peer) => Some(peer),
+        })
+        .for_each(move |peer| liveness_gossip.update_node_liveness(peer));
+    tokio::spawn(liveness_update_task);
     let meta_raft = RaftClient::new(
         config.node_id,
         storage,
@@ -87,14 +109,6 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
         None,
         None,
     )?;
-    let internal_service =
-        InternalServer::build_service(config.node_id, &kv_raft_router, &search_raft_router);
-    let server = start_rpc_server(
-        vec![internal_service, gossip_server.build_service()],
-        config.node_id,
-        config.port,
-    )?;
-    let http_server = start_web(config, node_router)?;
     let leader_update_task = meta_raft.subscribe()
         .filter_map(|event| match event {
             RaftEvent::LeaderChanged(id) => Some(id),

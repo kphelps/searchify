@@ -12,20 +12,12 @@ pub struct Config {
     pub search_storage_root: Option<String>,
     pub advertised_host: String,
     pub web: WebConfig,
-    pub gossip: GossipConfig,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct WebConfig {
     pub host: String,
     pub port: u16,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct GossipConfig {
-    pub host: String,
-    pub port: u16,
-    pub bootstrap: Vec<String>,
 }
 
 impl Config {
@@ -49,9 +41,7 @@ impl Config {
             .set_default("master_ids", vec![1, 2, 3])?
             .set_default("seeds", Vec::<String>::new())?
             .set_default("web.host", "0.0.0.0")?
-            .set_default("web.port", 8080)?
-            .set_default("gossip.host", "0.0.0.0")?
-            .set_default("gossip.port", 11766)?;
+            .set_default("web.port", 8080)?;
         Ok(s)
     }
 

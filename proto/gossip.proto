@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+import "internal.proto";
+
 package gossip;
 
 service Gossip {
@@ -12,4 +14,6 @@ message GossipData {
   map<uint64, string> peer_addresses = 3;
   string address = 4;
   uint64 meta_leader_id = 5;
+  map<uint64, searchify.PeerState> node_liveness = 6;
+  searchify.Timestamp updated_at = 7;
 }

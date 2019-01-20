@@ -155,12 +155,23 @@ message IdRange {
 
 message LivenessHeartbeat {
   Peer peer = 1;
+  // TODO: remove, not used
   uint64 tick = 2;
+  Liveness liveness = 3;
+  Liveness update = 4;
+}
+
+message Timestamp {
+  uint64 wall_time = 1;
+  uint32 logical_time = 2;
+  uint32 epoch = 3;
 }
 
 message PeerState {
   Peer peer = 1;
+  // TODO: remove, not used
   uint64 last_heartbeat_tick = 2;
+  Liveness liveness = 3;
 }
 
 message NodeState {
@@ -174,8 +185,13 @@ message ListNodesResponse {
   repeated NodeState nodes = 1;
 }
 
+message Liveness {
+  Timestamp expires_at = 1;
+}
+
 message HeartbeatRequest {
   Peer peer = 1;
+  Liveness liveness = 2;
 }
 
 message HealthRequest {

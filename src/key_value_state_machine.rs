@@ -1,4 +1,6 @@
 use crate::cached_persistent_map::CachedPersistentMap;
+use crate::clock::{Clock, HybridTimestamp};
+use crate::event_emitter::EventEmitter;
 use crate::index_tracker::IndexTracker;
 use crate::keys::KeySpace;
 use crate::proto::*;
@@ -6,25 +8,21 @@ use crate::raft::{FutureStateMachineObserver, RaftPropose, RaftStateMachine};
 use crate::shard_tracker::ShardTracker;
 use crate::storage_engine::StorageEngine;
 use failure::Error;
+use futures::sync::mpsc;
 use futures::sync::oneshot::Sender;
-use log::info;
+
+#[derive(Clone)]
+pub enum MetaStateEvent {
+    PeerUpdate(PeerState),
+}
 
 pub struct KeyValueStateMachine {
     _engine: StorageEngine,
+    clock: Clock,
     nodes: CachedPersistentMap<u64, PeerState>,
     indices: IndexTracker,
     shards: ShardTracker,
-}
-
-impl KeyValueStateMachine {
-    pub fn new(engine: StorageEngine) -> Result<Self, Error> {
-        Ok(Self {
-            _engine: engine.clone(),
-            nodes: CachedPersistentMap::new(&engine, KeySpace::Peer.as_key())?,
-            indices: IndexTracker::new(&engine)?,
-            shards: ShardTracker::new(&engine)?,
-        })
-    }
+    event_emitter: EventEmitter<MetaStateEvent>,
 }
 
 impl RaftStateMachine for KeyValueStateMachine {
@@ -50,6 +48,24 @@ type SimpleObserver<T, F> = FutureStateMachineObserver<T, F>;
 type SimplePropose = RaftPropose<KeyValueStateMachine>;
 
 impl KeyValueStateMachine {
+    pub fn new(
+        engine: StorageEngine,
+        clock: Clock,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            clock,
+            _engine: engine.clone(),
+            nodes: CachedPersistentMap::new(&engine, KeySpace::Peer.as_key())?,
+            indices: IndexTracker::new(&engine)?,
+            shards: ShardTracker::new(&engine)?,
+            event_emitter: EventEmitter::new(16),
+        })
+    }
+
+    pub fn subscribe(&mut self) -> mpsc::Receiver<MetaStateEvent> {
+        self.event_emitter.subscribe()
+    }
+
     fn create_index(&mut self, request: CreateIndexRequest) -> Result<(), Error> {
         let mut index_state = IndexState::new();
         index_state.shard_count = if request.shard_count == 0 {
@@ -80,8 +96,11 @@ impl KeyValueStateMachine {
     fn liveness_heartbeat(&mut self, heartbeat: LivenessHeartbeat) -> Result<(), Error> {
         let mut peer_state = PeerState::new();
         peer_state.peer = heartbeat.peer;
-        peer_state.last_heartbeat_tick = heartbeat.tick;
-        self.nodes.insert(&peer_state.get_peer().id, &peer_state)
+        // TODO: check liveness?
+        peer_state.liveness = heartbeat.update;
+        self.nodes.insert(&peer_state.get_peer().id, &peer_state)?;
+        self.event_emitter.emit(MetaStateEvent::PeerUpdate(peer_state));
+        Ok(())
     }
 
     fn allocate_shards(&self, index_state: &IndexState) -> Vec<ShardState> {
@@ -119,7 +138,12 @@ impl KeyValueStateMachine {
     }
 
     pub fn live_nodes(&self) -> Vec<PeerState> {
-        self.nodes.cache().values().cloned().collect()
+        let now = self.clock.now();
+        self.nodes.cache()
+            .values()
+            .filter(|peer| now < peer.get_liveness().get_expires_at().into())
+            .cloned()
+            .collect()
     }
 
     pub fn index(&self, name: &str) -> Result<Option<IndexState>, Error> {
@@ -183,11 +207,16 @@ impl KeyValueStateMachine {
 
     pub fn propose_heartbeat(
         mut request: HeartbeatRequest,
+        expires_at: HybridTimestamp,
         sender: Sender<EmptyResponse>,
     ) -> SimplePropose {
         let mut entry = KeyValueEntry::new();
         let mut heartbeat = LivenessHeartbeat::new();
         heartbeat.set_peer(request.take_peer());
+        heartbeat.set_liveness(request.take_liveness());
+        let mut update = Liveness::new();
+        update.set_expires_at(expires_at.into());
+        heartbeat.set_update(update);
         entry.set_heartbeat(heartbeat);
         let observer = SimpleObserver::new(sender, |_: &Self| EmptyResponse::new());
         SimplePropose::new(entry, observer)

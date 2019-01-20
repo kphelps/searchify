@@ -1,11 +1,14 @@
 #+TODO: TODO DOING | DONE
 
 * Current Notes
-  * Should split RPC into two services (KV and Search)
+  
+Liveness is currently intertwined with gossip - clearly wrong
+Gossip should just drop clients after a number of failed gossips
+Liveness will be used for leaseholders and shard allocation later
 
 * Release Tasks
   
-** 0.1 [21%]
+** 0.1 [25%]
   :PROPERTIES:
   :COOKIE_DATA: todo recursive
   :END:
@@ -25,17 +28,20 @@
 **** TODO Cluster Health API
 **** TODO Index Exists
      - tower-web doesn't support HEAD. Need to implement it there.
-*** Clustering [1/8]
-**** TODO Allow nodes to join without joining the master raft group
+*** Clustering [2/7]
+**** DOING Allow nodes to join without joining the master raft group
 **** TODO Allocate unallocated shards when a node joins the cluster
-**** TODO Detect when a node leaves the cluster
-     - Use a timeout (like 3 minutes)
+**** DONE Detect when a node leaves the cluster
+     CLOSED: [2019-01-20 Sun 10:29]
 **** TODO De-allocate shard when a node leaves the cluster
 **** TODO Remove inter-node polling
+     - Gossip shard/index routing information
 **** DONE Gossip infrastructure - Discovery
      CLOSED: [2019-01-18 Fri 08:10]
 **** TODO Cache shard routing information
      - Done for indices. Need to figure out when to refresh it and do it for shard-level routing
+     - Update local cache from gossips
+     - Check meta layer synchronously if cache missed / was wrong
 *** Indexing [1/4]
 **** DONE Commit on an interval instead of per-operation
      CLOSED: [2019-01-14 Mon 08:26]
