@@ -9,16 +9,16 @@
 
 * Release Tasks
   
-** 0.1 [30%]
+** 0.1 [33%]
   :PROPERTIES:
   :COOKIE_DATA: todo recursive
   :END:
-*** Search [2/3] 
+*** Search [3/3] 
 **** DONE Term Query
      CLOSED: [2019-01-11 Fri 11:43]
 **** DONE Bool Query
      CLOSED: [2019-01-11 Fri 11:45]
-**** DOING Respond with document information
+**** DONE Respond with document information
 *** APIs [3/6]
 **** DONE Get Index
      CLOSED: [2019-01-11 Fri 23:15]

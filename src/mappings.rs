@@ -5,13 +5,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use tantivy::{
     schema::{
-        Schema,
-        SchemaBuilder,
-        FAST,
-        STRING,
-        TextFieldIndexing,
-        TextOptions,
-        IndexRecordOption,
+        IndexRecordOption, Schema, SchemaBuilder, TextFieldIndexing, TextOptions, FAST, STRING,
     },
     Document,
 };
@@ -63,11 +57,7 @@ pub struct Mappings {
 }
 
 impl Mappings {
-    pub fn map_to_document(
-        &self,
-        id: DocumentId,
-        doc: &Value,
-    ) -> Result<MappedDocument, Error> {
+    pub fn map_to_document(&self, id: DocumentId, doc: &Value) -> Result<MappedDocument, Error> {
         let mut visitor = DocumentMappingVisitor::new(id, doc);
         self.accept(&mut visitor)?;
 
@@ -103,17 +93,17 @@ impl Mappings {
         let mut fields = BTreeMap::new();
         fields.insert(
             "_id".to_string(),
-            MappingField::Keyword(KeywordOptions{
+            MappingField::Keyword(KeywordOptions {
                 index: true,
                 store: true,
-            })
+            }),
         );
         fields.insert(
             "_source".to_string(),
-            MappingField::Keyword(KeywordOptions{
+            MappingField::Keyword(KeywordOptions {
                 index: false,
                 store: true,
-            })
+            }),
         );
         fields
     }
@@ -215,12 +205,16 @@ impl DocumentMappingVisitor {
 
     fn visit_source(&mut self) -> Result<(), Error> {
         let serialized = serde_json::to_vec(&self.value)?;
-        self.output.insert("_source".to_string(), MappedField::Binary(serialized));
+        self.output
+            .insert("_source".to_string(), MappedField::Binary(serialized));
         Ok(())
     }
 
     fn visit_id(&mut self) -> Result<(), Error> {
-        self.output.insert("_id".to_string(), MappedField::Keyword(self.id.clone().into()));
+        self.output.insert(
+            "_id".to_string(),
+            MappedField::Keyword(self.id.clone().into()),
+        );
         Ok(())
     }
 }
@@ -327,14 +321,15 @@ impl MappingVisitor for SchemaBuilderVisitor {
     fn visit_keyword(&mut self, options: &KeywordOptions) -> Result<(), Error> {
         let mut field_options = TextOptions::default();
         if options.index {
-            let index_options = TextFieldIndexing::default()
-                .set_index_option(IndexRecordOption::Basic);
+            let index_options =
+                TextFieldIndexing::default().set_index_option(IndexRecordOption::Basic);
             field_options = field_options.set_indexing_options(index_options);
         }
         if options.store {
             field_options = field_options.set_stored();
         }
-        self.builder.add_text_field(&self.current_path(), field_options);
+        self.builder
+            .add_text_field(&self.current_path(), field_options);
         Ok(())
     }
 

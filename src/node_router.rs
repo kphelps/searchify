@@ -7,7 +7,7 @@ use crate::rpc_client::RpcClient;
 use failure::{err_msg, Error};
 use futures::{future, prelude::*, sync::oneshot};
 use log::*;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio_timer::Interval;
@@ -135,10 +135,9 @@ impl NodeRouter {
     ) -> impl Future<Item = GetDocumentResponse, Error = Error> {
         self.get_shard_client_for_document(&index_name, &document_id)
             .and_then(move |shard_client| {
-                shard_client.client.get_document(
-                    shard_client.shard.id,
-                    document_id,
-                )
+                shard_client
+                    .client
+                    .get_document(shard_client.shard.id, document_id)
             })
     }
 
@@ -146,8 +145,9 @@ impl NodeRouter {
         &self,
         index_name: String,
         query: Vec<u8>,
-    ) -> impl Future<Item = (), Error = Error> {
+    ) -> impl Future<Item = MergedSearchResponse, Error = Error> {
         let resolver = self.gossip_state.clone();
+        let limit = 10;
         self.get_index(index_name.to_string())
             .and_then(move |index| {
                 let futures = index.shards.into_iter().map(move |shard| {
@@ -161,9 +161,27 @@ impl NodeRouter {
                         .and_then(move |client| client.search(&index_name, shard.id, query.clone()))
                         .then(future::ok)
                 });
-                future::join_all(futures).map(|results| {
-                    info!("Search response: {:?}", results);
-                })
+                future::join_all(futures)
+            })
+            .map(move |results| {
+                let mut merged = MergedSearchResponse::new();
+                let mut hit_list = Vec::new();
+                let mut successes = 0;
+                let mut total = 0;
+                merged.set_shard_count(results.len() as u64);
+                results.into_iter().for_each(|result| {
+                    if let Ok(mut response) = result {
+                        successes += 1;
+                        total += response.total;
+                        hit_list.extend(response.take_hits().into_iter());
+                    }
+                });
+                hit_list.sort_unstable_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+                let top_hits: Vec<SearchHit> = hit_list.into_iter().take(limit).collect();
+                merged.set_success_count(successes);
+                merged.set_hit_total(total);
+                merged.set_hits(top_hits.into());
+                merged
             })
     }
 

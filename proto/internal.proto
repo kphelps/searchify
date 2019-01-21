@@ -248,8 +248,16 @@ message SearchResponse {
 }
 
 message SearchHit {
-  uint64 id = 1;
+  string id = 1;
   bytes source = 2;
+  float score = 3;
+}
+
+message MergedSearchResponse {
+  uint64 shard_count = 1;
+  uint64 success_count = 2;
+  repeated SearchHit hits = 3;
+  uint64 hit_total = 4;
 }
 
 message RefreshRequest {

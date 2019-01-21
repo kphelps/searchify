@@ -39,7 +39,32 @@ struct SearchRequest {
 }
 
 #[derive(Response)]
-struct SearchResponse {}
+struct SearchResponse {
+    took: u64,
+    timed_out: bool,
+    shards: ShardResultResponse,
+    hits: Vec<SearchHitResponse>,
+}
+
+#[derive(Response, Serialize)]
+struct ShardResultResponse {
+    total: u64,
+    successful: u64,
+    skipped: u64,
+    failed: u64,
+}
+
+#[derive(Response, Serialize)]
+struct SearchHitResponse {
+    #[serde(rename = "_index")]
+    index_name: String,
+    #[serde(rename = "_id")]
+    id: String,
+    #[serde(rename = "_score")]
+    score: f32,
+    #[serde(rename = "_source")]
+    source: Option<serde_json::Value>,
+}
 
 #[derive(Response)]
 struct IndexDocumentResponse {}
@@ -57,7 +82,7 @@ struct GetDocumentResponse {
     found: bool,
     #[serde(rename = "_source")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    source: Option<serde_json::Value>
+    source: Option<serde_json::Value>,
 }
 
 #[derive(Response)]
@@ -109,8 +134,30 @@ impl_web! {
             body: SearchRequest,
             name: String,
         ) -> impl Future<Item = SearchResponse, Error = Error> + Send {
+            let start = Instant::now();
             let query_string = serde_json::to_vec(&body.query).unwrap();
-            self.node_router.search(name, query_string).map(|_| SearchResponse {})
+            self.node_router.search(name.clone(), query_string)
+                .and_then(move |result| {
+                    let dt = start.elapsed();
+                    let took = dt.as_secs() as u64 * 1000 + dt.subsec_millis() as u64;
+                    let hits = result.get_hits().into_iter().map(|hit| Ok(SearchHitResponse {
+                        index_name: name.clone(),
+                        id: hit.id.clone(),
+                        score: hit.score,
+                        source: serde_json::from_slice(hit.get_source())?
+                    })).collect::<Result<Vec<SearchHitResponse>, Error>>();
+                    hits.map(|hits| SearchResponse {
+                        took,
+                        hits,
+                        timed_out: false,
+                        shards: ShardResultResponse {
+                            total: result.shard_count,
+                            successful: result.success_count,
+                            failed: result.shard_count - result.success_count,
+                            skipped: 0,
+                        },
+                    })
+                })
                 .map_err(|e| {
                     log::error!("Err: {:?}", e);
                     e

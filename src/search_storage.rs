@@ -1,12 +1,7 @@
 use crate::document::DocumentId;
 use crate::mappings::Mappings;
-use crate::proto::{
-    GetDocumentResponse,
-    SearchHit,
-    SearchRequest,
-    SearchResponse,
-};
-use crate::query_api::{QueryValue, SearchQuery, ToQuery, TermQuery};
+use crate::proto::{GetDocumentResponse, SearchHit, SearchRequest, SearchResponse};
+use crate::query_api::{QueryValue, SearchQuery, TermQuery, ToQuery};
 use failure::Error;
 use log::*;
 use std::fs::DirBuilder;
@@ -15,9 +10,7 @@ use tantivy::{
     collector::{Count, TopDocs},
     directory::MmapDirectory,
     schema::*,
-    DocAddress,
-    Index, IndexWriter,
-    Searcher,
+    DocAddress, Index, IndexWriter, Searcher,
 };
 
 pub struct SearchStorage {
@@ -29,11 +22,7 @@ pub struct SearchStorage {
 }
 
 impl SearchStorage {
-    pub fn new<P>(
-        shard_id: u64,
-        path: P,
-        mappings: Mappings,
-    ) -> Result<Self, Error>
+    pub fn new<P>(shard_id: u64, path: P, mappings: Mappings) -> Result<Self, Error>
     where
         P: AsRef<Path>,
     {
@@ -79,14 +68,19 @@ impl SearchStorage {
         let result = searcher.search(&query.to_query(&self.schema, &searcher)?, &collector)?;
         let mut response = SearchResponse::new();
         response.set_total(result.0 as u64);
-        let sources = result.1.into_iter()
+        let sources = result
+            .1
+            .into_iter()
             .map(|(_, addr)| self.get_source(&searcher, addr))
             .collect::<Result<Vec<Vec<u8>>, Error>>()?;
-        let hits = sources.into_iter().map(|source| {
-            let mut hit = SearchHit::new();
-            hit.set_source(source);
-            hit
-        }).collect::<Vec<SearchHit>>();
+        let hits = sources
+            .into_iter()
+            .map(|source| {
+                let mut hit = SearchHit::new();
+                hit.set_source(source);
+                hit
+            })
+            .collect::<Vec<SearchHit>>();
         response.set_hits(hits.into());
         info!("[shard-{}] Response: {:?}", self.shard_id, response);
         Ok(response)
@@ -111,13 +105,17 @@ impl SearchStorage {
     pub fn refresh(&mut self) -> Result<(), Error> {
         info!("[shard-{}] Refresh", self.shard_id);
         self.writer.commit()?;
+        self.index.load_searchers()?;
         Ok(())
     }
 
     fn get_source(&self, searcher: &Searcher, addr: DocAddress) -> Result<Vec<u8>, Error> {
         let doc = searcher.doc(addr)?;
         info!("[shard-{}] Hit: {:?}", self.shard_id, doc);
-        let field = self.schema.get_field("_source").expect("document source field");
+        let field = self
+            .schema
+            .get_field("_source")
+            .expect("document source field");
         let serialized = match doc.get_first(field).expect("document source") {
             Value::Bytes(bytes) => bytes.clone(),
             _ => unreachable!(),

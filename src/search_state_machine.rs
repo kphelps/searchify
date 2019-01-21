@@ -71,11 +71,9 @@ impl SearchStateMachine {
         request: SearchRequest,
         sender: Sender<Result<SearchResponse, Error>>,
     ) -> SimplePropose {
-        Self::propose_read(
-            request.shard_id,
-            sender,
-            move |sm: &Self| sm.storage.search(request),
-        )
+        Self::propose_read(request.shard_id, sender, move |sm: &Self| {
+            sm.storage.search(request)
+        })
     }
 
     pub fn propose_refresh(
@@ -93,16 +91,15 @@ impl SearchStateMachine {
         request: GetDocumentRequest,
         sender: Sender<Result<GetDocumentResponse, Error>>,
     ) -> SimplePropose {
-        Self::propose_read(
-            request.shard_id,
-            sender,
-            move |sm: &Self| sm.storage.get(&request.document_id.into()),
-        )
+        Self::propose_read(request.shard_id, sender, move |sm: &Self| {
+            sm.storage.get(&request.document_id.into())
+        })
     }
 
     fn propose_read<R, F>(shard_id: u64, sender: Sender<R>, f: F) -> SimplePropose
-    where F: FnOnce(&Self) -> R + Send + Sync + 'static,
-          R: Send + Sync + 'static
+    where
+        F: FnOnce(&Self) -> R + Send + Sync + 'static,
+        R: Send + Sync + 'static,
     {
         // TODO: This should go through the leaseholder and avoid raft altogether
         let entry = SearchEntry::new();
