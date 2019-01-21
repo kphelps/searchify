@@ -48,10 +48,7 @@ type SimpleObserver<T, F> = FutureStateMachineObserver<T, F>;
 type SimplePropose = RaftPropose<KeyValueStateMachine>;
 
 impl KeyValueStateMachine {
-    pub fn new(
-        engine: StorageEngine,
-        clock: Clock,
-    ) -> Result<Self, Error> {
+    pub fn new(engine: StorageEngine, clock: Clock) -> Result<Self, Error> {
         Ok(Self {
             clock,
             _engine: engine.clone(),
@@ -99,7 +96,8 @@ impl KeyValueStateMachine {
         // TODO: check liveness?
         peer_state.liveness = heartbeat.update;
         self.nodes.insert(&peer_state.get_peer().id, &peer_state)?;
-        self.event_emitter.emit(MetaStateEvent::PeerUpdate(peer_state));
+        self.event_emitter
+            .emit(MetaStateEvent::PeerUpdate(peer_state));
         Ok(())
     }
 
@@ -139,7 +137,8 @@ impl KeyValueStateMachine {
 
     pub fn live_nodes(&self) -> Vec<PeerState> {
         let now = self.clock.now();
-        self.nodes.cache()
+        self.nodes
+            .cache()
             .values()
             .filter(|peer| now < peer.get_liveness().get_expires_at().into())
             .cloned()

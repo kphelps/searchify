@@ -1,9 +1,4 @@
-use futures::{
-    prelude::*,
-    future,
-    sink,
-    sync::mpsc,
-};
+use futures::{future, prelude::*, sink, sync::mpsc};
 
 pub struct EventEmitter<T> {
     buffer: usize,
@@ -11,9 +6,9 @@ pub struct EventEmitter<T> {
 }
 
 impl<T> EventEmitter<T>
-    where T: Clone + Send + 'static
+where
+    T: Clone + Send + 'static,
 {
-
     pub fn new(buffer: usize) -> Self {
         Self {
             buffer,
@@ -28,12 +23,12 @@ impl<T> EventEmitter<T>
     }
 
     pub fn emit(&self, event: T) {
-        let futures: Vec<sink::Send<mpsc::Sender<T>>> = self.subscribers
+        let futures: Vec<sink::Send<mpsc::Sender<T>>> = self
+            .subscribers
             .iter()
             .map(move |subscriber| subscriber.clone().send(event.clone()))
             .collect();
-        let f = future::join_all(futures)
-            .map(|_| ()).map_err(|_| ());
+        let f = future::join_all(futures).map(|_| ()).map_err(|_| ());
         tokio::spawn(f);
     }
 }

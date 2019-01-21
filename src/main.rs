@@ -9,6 +9,7 @@ mod cached_persistent_cell;
 mod cached_persistent_map;
 mod clock;
 mod config;
+mod document;
 mod event_emitter;
 mod gossip;
 mod id_generator;

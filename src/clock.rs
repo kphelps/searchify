@@ -1,10 +1,6 @@
 use crate::proto;
 use failure::Error;
-use hybrid_clocks::{
-    Clock as HybridClock,
-    ClockSource,
-    Timestamp,
-};
+use hybrid_clocks::{Clock as HybridClock, ClockSource, Timestamp};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
@@ -19,10 +15,10 @@ struct Inner {
     clock: HybridClock<Wall>,
 }
 
-#[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Wall;
 
-#[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// Nanoseconds since unix epoch
 pub struct WallT(u64);
 
@@ -47,7 +43,7 @@ impl Clock {
         let mut locked = self.inner.lock().unwrap();
         let now = locked.clock.now();
         if now > *msg {
-            return Ok(())
+            return Ok(());
         }
         locked.clock.observe(msg).map_err(Error::from)
     }
@@ -55,10 +51,7 @@ impl Clock {
 
 impl Inner {
     pub fn new() -> Self {
-        let clock = HybridClock::new_with_max_diff(
-            Wall,
-            Duration::from_millis(500),
-        );
+        let clock = HybridClock::new_with_max_diff(Wall, Duration::from_millis(500));
         Self { clock }
     }
 }
@@ -68,7 +61,8 @@ impl ClockSource for Wall {
     type Delta = Duration;
 
     fn now(&mut self) -> Self::Time {
-        let duration = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
+        let duration = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
             .expect("Failed to get current time");
         WallT(nanos(&duration))
     }

@@ -1,3 +1,4 @@
+use crate::document::DocumentId;
 use crate::mappings::Mappings;
 use crate::proto::gossip::*;
 use crate::proto::gossip_grpc::*;
@@ -120,15 +121,28 @@ impl RpcClient {
         &self,
         _index_name: &str,
         shard_id: u64,
+        document_id: DocumentId,
         payload: serde_json::Value,
     ) -> impl Future<Item = (), Error = Error> {
         let mut request = IndexDocumentRequest::new();
         request.shard_id = shard_id;
         request.payload = serde_json::to_string(&payload).unwrap();
+        request.document_id = document_id.into();
         futurize_unit(
             self.client
                 .index_document_async_opt(&request, self.options()),
         )
+    }
+
+    pub fn get_document(
+        &self,
+        shard_id: u64,
+        document_id: DocumentId,
+    ) -> impl Future<Item = GetDocumentResponse, Error = Error> {
+        let mut request = GetDocumentRequest::new();
+        request.shard_id = shard_id;
+        request.document_id = document_id.into();
+        futurize(self.client.get_document_async_opt(&request, self.options()))
     }
 
     pub fn search(

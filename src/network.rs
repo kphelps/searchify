@@ -183,6 +183,17 @@ impl Internal for InternalServer {
         propose_api(&self.search_raft_router, proposal, receiver, ctx, sink);
     }
 
+    fn get_document(
+        &mut self,
+        ctx: RpcContext,
+        req: GetDocumentRequest,
+        sink: UnarySink<GetDocumentResponse>,
+    ) {
+        let (sender, receiver) = channel();
+        let proposal = SearchStateMachine::get_document(req, sender);
+        propose_api_result(&self.search_raft_router, proposal, receiver, ctx, sink);
+    }
+
     fn search(&mut self, ctx: RpcContext, req: SearchRequest, sink: UnarySink<SearchResponse>) {
         let (sender, receiver) = channel();
         let proposal = SearchStateMachine::search(req, sender);

@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::document::DocumentId;
 use crate::gossip::GossipState;
 use crate::mappings::Mappings;
 use crate::proto::*;
@@ -23,10 +24,7 @@ pub struct NodeRouterHandle {
 }
 
 impl NodeRouter {
-    fn new(
-        config: &Config,
-        gossip_state: GossipState,
-    ) -> Self {
+    fn new(config: &Config, gossip_state: GossipState) -> Self {
         let mut clients = HashMap::new();
         let self_address = format!("127.0.0.1:{}", config.port);
         clients.insert(
@@ -40,10 +38,7 @@ impl NodeRouter {
         }
     }
 
-    pub fn start(
-        config: &Config,
-        gossip_state: GossipState,
-    ) -> Result<NodeRouterHandle, Error> {
+    pub fn start(config: &Config, gossip_state: GossipState) -> Result<NodeRouterHandle, Error> {
         let router = NodeRouter::new(config, gossip_state);
         let handle = NodeRouterHandle {
             handle: Arc::new(router),
@@ -54,7 +49,8 @@ impl NodeRouter {
             .map_err(|_| ())
             .and_then(move |_| heartbeat_handle.upgrade().ok_or(()))
             .for_each(move |handle| {
-                handle.send_heartbeat()
+                handle
+                    .send_heartbeat()
                     .map_err(|err| warn!("Error sending heartbeat: {:?}", err))
                     .then(|_| Ok(()))
             });
@@ -118,16 +114,31 @@ impl NodeRouter {
     pub fn index_document(
         &self,
         index_name: String,
-        document_id: u64,
+        document_id: DocumentId,
         payload: serde_json::Value,
     ) -> impl Future<Item = (), Error = Error> {
-        let resolver = self.gossip_state.clone();
-        self.get_shard_for_document(&index_name, document_id)
-            .and_then(move |shard| {
-                let replica_id = shard.replicas.first().unwrap().id;
-                resolver.get_client(replica_id)
-                    .into_future()
-                    .and_then(move |client| client.index_document(&index_name, shard.id, payload))
+        self.get_shard_client_for_document(&index_name, &document_id)
+            .and_then(move |shard_client| {
+                shard_client.client.index_document(
+                    &index_name,
+                    shard_client.shard.id,
+                    document_id,
+                    payload,
+                )
+            })
+    }
+
+    pub fn get_document(
+        &self,
+        index_name: String,
+        document_id: DocumentId,
+    ) -> impl Future<Item = GetDocumentResponse, Error = Error> {
+        self.get_shard_client_for_document(&index_name, &document_id)
+            .and_then(move |shard_client| {
+                shard_client.client.get_document(
+                    shard_client.shard.id,
+                    document_id,
+                )
             })
     }
 
@@ -144,7 +155,8 @@ impl NodeRouter {
                     let index_name = index_name.clone();
                     let replica_id = shard.replicas.first().unwrap().id;
                     // lift the future error up into the response so we can join all
-                    resolver.get_client(replica_id)
+                    resolver
+                        .get_client(replica_id)
                         .into_future()
                         .and_then(move |client| client.search(&index_name, shard.id, query.clone()))
                         .then(future::ok)
@@ -161,7 +173,8 @@ impl NodeRouter {
             .and_then(move |mut index| {
                 let shards = index.take_shards().into_iter().map(move |shard| {
                     let replica_id = shard.replicas.first().unwrap().id;
-                    resolver.get_client(replica_id)
+                    resolver
+                        .get_client(replica_id)
                         .into_future()
                         .and_then(move |client| client.refresh_shard(shard.id))
                 });
@@ -174,7 +187,8 @@ impl NodeRouter {
         let resolver = self.gossip_state.clone();
         self.get_shard_by_id(shard_id).and_then(move |shard| {
             let replica_id = shard.replicas.first().unwrap().id;
-            resolver.get_client(replica_id)
+            resolver
+                .get_client(replica_id)
                 .into_future()
                 .and_then(move |client| client.refresh_shard(shard.id))
         })
@@ -196,8 +210,9 @@ impl NodeRouter {
     fn get_shard_for_document(
         &self,
         index_name: &str,
-        document_id: u64,
+        document_id: &DocumentId,
     ) -> impl Future<Item = ShardState, Error = Error> {
+        let id = document_id.routing_id();
         self.get_cached_index(index_name).map(move |index| {
             index
                 .shards
@@ -205,10 +220,25 @@ impl NodeRouter {
                 .find(|shard| {
                     let low_id = shard.get_range().low;
                     let high_id = shard.get_range().high;
-                    low_id <= document_id && document_id <= high_id
+                    low_id <= id && id <= high_id
                 })
                 .expect("Invalid range")
         })
+    }
+
+    fn get_shard_client_for_document(
+        &self,
+        index_name: &str,
+        document_id: &DocumentId,
+    ) -> impl Future<Item = ShardClient, Error = Error> {
+        let resolver = self.gossip_state.clone();
+        self.get_shard_for_document(index_name, document_id)
+            .and_then(move |shard| {
+                let replica_id = shard.replicas.first().unwrap().id;
+                resolver
+                    .get_client(replica_id)
+                    .map(|client| ShardClient { client, shard })
+            })
     }
 
     fn get_cached_index(&self, index_name: &str) -> impl Future<Item = IndexState, Error = Error> {
@@ -259,4 +289,9 @@ impl std::ops::Deref for NodeRouterHandle {
     fn deref(&self) -> &Self::Target {
         &self.handle
     }
+}
+
+struct ShardClient {
+    client: RpcClient,
+    shard: ShardState,
 }

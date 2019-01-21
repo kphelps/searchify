@@ -4,8 +4,6 @@ use crate::node_router::NodeRouterHandle;
 use crate::query_api::SearchQuery;
 use failure::Error;
 use futures::{prelude::*, sync::oneshot};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::Hasher;
 use tokio::net::TcpListener;
 use tower_web::*;
 
@@ -45,6 +43,22 @@ struct SearchResponse {}
 
 #[derive(Response)]
 struct IndexDocumentResponse {}
+
+#[derive(Response, Serialize)]
+#[web(status = "200")]
+struct GetDocumentResponse {
+    #[serde(rename = "_index")]
+    index_name: String,
+    #[serde(rename = "_id")]
+    id: String,
+    #[serde(rename = "_version")]
+    version: u64,
+    #[serde(rename = "found")]
+    found: bool,
+    #[serde(rename = "_source")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<serde_json::Value>
+}
 
 #[derive(Response)]
 struct RefreshResponse {}
@@ -97,21 +111,23 @@ impl_web! {
         ) -> impl Future<Item = SearchResponse, Error = Error> + Send {
             let query_string = serde_json::to_vec(&body.query).unwrap();
             self.node_router.search(name, query_string).map(|_| SearchResponse {})
+                .map_err(|e| {
+                    log::error!("Err: {:?}", e);
+                    e
+                })
         }
 
-        #[post("/:name/_doc/:id")]
+        #[post("/:name/:id")]
         #[content_type("json")]
         fn index_document(
             &self,
             name: String,
-            id: u64,
+            id: String,
             body: Vec<u8>,
         ) -> impl Future<Item = IndexDocumentResponse, Error = Error> + Send {
             let v = serde_json::from_slice(&body).unwrap();
-            let mut hasher = DefaultHasher::new();
-            hasher.write_u64(id);
             self.node_router
-                .index_document(name, hasher.finish(), v)
+                .index_document(name, id.into(), v)
                 .map(|_| IndexDocumentResponse {})
         }
 
@@ -121,15 +137,16 @@ impl_web! {
             self.node_router.refresh_index(&name).map(|_| RefreshResponse {})
         }
 
-        #[delete("/:name")]
+        #[delete("/:name/")]
         #[content_type("json")]
         fn delete_index(&self, name: String) -> impl Future<Item = DeletedResponse, Error = Error> + Send {
             self.node_router.delete_index(name).map(|_| DeletedResponse{})
         }
 
-        #[get("/:name")]
+        #[get("/:name/")]
         #[content_type("json")]
         fn get_index(&self, name: String) -> impl Future<Item = Index, Error = Error> + Send {
+            log::info!("Getting: {}", name);
             self.node_router.get_index(name)
                 .map(|state| Index{
                     index_name: state.name,
@@ -152,6 +169,32 @@ impl_web! {
                     ListIndicesResponse{
                         indices: indices.collect(),
                     }
+                })
+        }
+
+        #[get("/:name/:id")]
+        #[content_type("json")]
+        fn get_document(
+            &self,
+            name: String,
+            id: String,
+        ) -> impl Future<Item = GetDocumentResponse, Error = Error> + Send {
+            self.node_router.get_document(name.clone(), id.clone().into())
+                .and_then(move |response| {
+                    let source = if response.found {
+                        let j = response.get_source();
+                        let value = serde_json::from_slice(j)?;
+                        Some(value)
+                    } else {
+                        None
+                    };
+                    Ok(GetDocumentResponse{
+                        index_name: name,
+                        id: id,
+                        found: response.found,
+                        version: 0,
+                        source: source,
+                    })
                 })
         }
     }

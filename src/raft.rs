@@ -351,7 +351,8 @@ where
     fn update_leader_id(&mut self) {
         if self.leader_id != self.raft_node.raft.leader_id {
             self.leader_id = self.raft_node.raft.leader_id;
-            self.event_emitter.emit(RaftEvent::LeaderChanged(self.leader_id));
+            self.event_emitter
+                .emit(RaftEvent::LeaderChanged(self.leader_id));
         }
     }
 
@@ -368,12 +369,12 @@ where
         match self.current_role {
             StateRole::Leader => self.change_role_to_leader(),
             StateRole::Follower => self.change_role_to_follower(),
-            _ => info!("became candidate"),
+            _ => info!("[group-{}] became candidate", self.raft_group_id),
         }
     }
 
     fn change_role_to_leader(&mut self) {
-        info!("became leader");
+        info!("[group-{}] became leader", self.raft_group_id);
         if let Some(ref f) = self.leader_task {
             let (sender, receiver) = oneshot::channel();
             let f = f().select(receiver.map_err(|_| ()));
@@ -383,7 +384,7 @@ where
     }
 
     fn change_role_to_follower(&mut self) {
-        info!("became follower");
+        info!("[group-{}] became follower", self.raft_group_id);
         if let Some(ref f) = self.follower_task {
             let (sender, receiver) = oneshot::channel();
             let f = f().select(receiver.map_err(|_| ()));

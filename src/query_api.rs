@@ -92,6 +92,14 @@ impl ToQuery for BoolQuery {
     }
 }
 
+impl TermQuery {
+    pub fn new(name: &str, value: QueryValue) -> Self {
+        let mut hash = HashMap::new();
+        hash.insert(name.to_string(), value);
+        Self { query: hash }
+    }
+}
+
 impl ToQuery for TermQuery {
     fn to_query(&self, schema: &Schema, _: &Searcher) -> QueryResult {
         if let Some((field_name, query_value)) = self.query.iter().take(1).next() {

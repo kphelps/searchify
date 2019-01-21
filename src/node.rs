@@ -140,7 +140,8 @@ fn start_master_process(
     let kv_engine = StorageEngine::new(&storage_root.join("kv"))?;
     let mut kv_state_machine = KeyValueStateMachine::new(kv_engine, clock.clone())?;
     let liveness_gossip = gossip_server.clone();
-    let liveness_update_task = kv_state_machine.subscribe()
+    let liveness_update_task = kv_state_machine
+        .subscribe()
         .filter_map(|event| match event {
             MetaStateEvent::PeerUpdate(peer) => Some(peer),
         })
@@ -155,7 +156,8 @@ fn start_master_process(
         None,
         None,
     )?;
-    let leader_update_task = meta_raft.subscribe()
+    let leader_update_task = meta_raft
+        .subscribe()
         .filter_map(|event| match event {
             RaftEvent::LeaderChanged(id) => Some(id),
         })

@@ -1,9 +1,9 @@
 use crate::clock::{Clock, HybridTimestamp};
-use crate::proto::PeerState;
 use crate::proto::gossip::*;
 use crate::proto::gossip_grpc::*;
+use crate::proto::PeerState;
 use crate::rpc_client::RpcClient;
-use failure::{format_err, err_msg, Error};
+use failure::{err_msg, format_err, Error};
 use futures::prelude::*;
 use futures::sync::{mpsc, oneshot};
 use grpcio::{RpcContext, Service, UnarySink};
@@ -43,20 +43,9 @@ enum ClientEvent {
 }
 
 impl GossipServer {
-    pub fn new(
-        node_id: u64,
-        bootstrap: &[String],
-        self_address: &str,
-        clock: Clock,
-    ) -> Self {
+    pub fn new(node_id: u64, bootstrap: &[String], self_address: &str, clock: Clock) -> Self {
         let (sender, receiver) = mpsc::channel(32);
-        let state = GossipState::new(
-            node_id,
-            self_address,
-            bootstrap,
-            sender.clone(),
-            clock,
-        );
+        let state = GossipState::new(node_id, self_address, bootstrap, sender.clone(), clock);
         run_gossip_event_handler(receiver, state.new_ref(), node_id);
         GossipServer { state, sender }
     }
@@ -92,16 +81,16 @@ fn run_gossip_event_handler(
             GossipEvent::NewPeerDiscovered(address) => {
                 info!("Discovered: {}", address);
                 connect_to_client(state.upgrade(), self_id, &address);
-            },
+            }
             GossipEvent::GossipReceived(data) => {
                 state.upgrade().merge_gossip(data);
-            },
+            }
             GossipEvent::MetaLeaderChanged(id) => {
                 state.upgrade().update_meta_leader(id);
-            },
+            }
             GossipEvent::PeerUpdate(peer) => {
                 state.upgrade().update_node_liveness(&peer);
-            },
+            }
         };
         Ok(())
     });
@@ -175,20 +164,17 @@ impl GossipState {
 
     pub fn get_meta_leader_client(&self) -> Result<RpcClient, Error> {
         let locked = self.inner.read().unwrap();
-        locked.meta_leader_id()
+        locked
+            .meta_leader_id()
             .ok_or_else(|| err_msg("Leader not available"))
-            .and_then(|node_id| {
-                self.get_client(node_id)
-            })
+            .and_then(|node_id| self.get_client(node_id))
     }
 
-    fn add_connection(
-        &self,
-        addr: &str,
-        sender: oneshot::Sender<()>,
-        rpc_client: RpcClient,
-    ) {
-        self.inner.write().unwrap().add_connection(addr, sender, rpc_client)
+    fn add_connection(&self, addr: &str, sender: oneshot::Sender<()>, rpc_client: RpcClient) {
+        self.inner
+            .write()
+            .unwrap()
+            .add_connection(addr, sender, rpc_client)
     }
 
     fn merge_gossip(&self, gossip: GossipData) {
@@ -210,7 +196,11 @@ impl GossipState {
     }
 
     fn update_clock(&self, peer_sent_at: HybridTimestamp) {
-        self.inner.read().unwrap().clock.update(&peer_sent_at)
+        self.inner
+            .read()
+            .unwrap()
+            .clock
+            .update(&peer_sent_at)
             .unwrap_or_else(|err| error!("Failed to update clock: {:?}", err));
     }
 }
@@ -225,18 +215,14 @@ impl GossipStateRef {
 
 impl InnerGossipState {
     fn get_client(&self, node_id: u64) -> Result<RpcClient, Error> {
-        self.peers.get(&node_id)
+        self.peers
+            .get(&node_id)
             .and_then(|gossip| self.clients.get(gossip.get_address()))
             .cloned()
             .ok_or_else(|| format_err!("Not connected to '{}'", node_id))
     }
 
-    fn add_connection(
-        &mut self,
-        addr: &str,
-        sender: oneshot::Sender<()>,
-        client: RpcClient,
-    ) {
+    fn add_connection(&mut self, addr: &str, sender: oneshot::Sender<()>, client: RpcClient) {
         self.connections.insert(addr.to_string(), sender);
         self.clients.insert(addr.to_string(), client);
     }
@@ -275,10 +261,11 @@ impl InnerGossipState {
 
     fn meta_leader_id(&self) -> Option<u64> {
         if self.current.meta_leader_id != 0 {
-            return Some(self.current.meta_leader_id)
+            return Some(self.current.meta_leader_id);
         }
 
-        self.peers.values()
+        self.peers
+            .values()
             .filter(|peer| peer.meta_leader_id != 0)
             .max_by_key(|peer| -> HybridTimestamp { peer.get_updated_at().into() })
             .map(|peer| peer.meta_leader_id)
@@ -286,7 +273,9 @@ impl InnerGossipState {
 
     fn update_node_liveness(&mut self, peer: &PeerState) {
         let peer_id = peer.get_peer().id;
-        self.current.mut_node_liveness().insert(peer_id, peer.clone());
+        self.current
+            .mut_node_liveness()
+            .insert(peer_id, peer.clone());
     }
 }
 

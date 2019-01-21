@@ -1,9 +1,18 @@
+use crate::document::DocumentId;
 use failure::{format_err, Error};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use tantivy::{
-    schema::{Schema, SchemaBuilder, FAST, STRING},
+    schema::{
+        Schema,
+        SchemaBuilder,
+        FAST,
+        STRING,
+        TextFieldIndexing,
+        TextOptions,
+        IndexRecordOption,
+    },
     Document,
 };
 
@@ -28,10 +37,11 @@ impl MappedDocument {
         let mut document = Document::new();
 
         self.fields.iter().for_each(|(name, mapped_field)| {
-            let field = schema.get_field(name).unwrap();
+            let field = schema.get_field(name).expect("Field not found");
             match mapped_field {
                 MappedField::Keyword(ref s) => document.add_text(field, s),
                 MappedField::Long(n) => document.add_i64(field, *n),
+                MappedField::Binary(bytes) => document.add_bytes(field, bytes.to_vec()),
             }
         });
 
@@ -44,16 +54,21 @@ impl MappedDocument {
 pub enum MappedField {
     Keyword(String),
     Long(i64),
+    Binary(Vec<u8>),
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Mappings {
-    properties: HashMap<String, MappingField>,
+    properties: BTreeMap<String, MappingField>,
 }
 
 impl Mappings {
-    pub fn map_to_document(&self, doc: &Value) -> Result<MappedDocument, Error> {
-        let mut visitor = DocumentMappingVisitor::new(doc);
+    pub fn map_to_document(
+        &self,
+        id: DocumentId,
+        doc: &Value,
+    ) -> Result<MappedDocument, Error> {
+        let mut visitor = DocumentMappingVisitor::new(id, doc);
         self.accept(&mut visitor)?;
 
         Ok(MappedDocument {
@@ -67,6 +82,7 @@ impl Mappings {
     {
         self.properties
             .iter()
+            .chain(self.internal_fields().iter())
             .map(|(field_name, field_value)| {
                 if visitor.enter_scope(field_name)? {
                     field_value.accept(visitor)?;
@@ -82,20 +98,52 @@ impl Mappings {
         self.accept(&mut visitor)?;
         Ok(visitor.builder.build())
     }
+
+    fn internal_fields(&self) -> BTreeMap<String, MappingField> {
+        let mut fields = BTreeMap::new();
+        fields.insert(
+            "_id".to_string(),
+            MappingField::Keyword(KeywordOptions{
+                index: true,
+                store: true,
+            })
+        );
+        fields.insert(
+            "_source".to_string(),
+            MappingField::Keyword(KeywordOptions{
+                index: false,
+                store: true,
+            })
+        );
+        fields
+    }
 }
 
 impl_persistable!(Mappings);
+
+fn true_fn() -> bool {
+    true
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 #[serde(tag = "type")]
 pub enum MappingField {
-    Keyword,
+    Keyword(KeywordOptions),
     Long,
+    Binary,
     Object {
         #[serde(default)]
         properties: HashMap<String, MappingField>,
     },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct KeywordOptions {
+    #[serde(default = "true_fn")]
+    index: bool,
+    #[serde(default)]
+    store: bool,
 }
 
 pub trait MappingVisitor {
@@ -103,7 +151,8 @@ pub trait MappingVisitor {
     fn leave_scope(&mut self);
 
     fn visit_long(&mut self) -> Result<(), Error>;
-    fn visit_keyword(&mut self) -> Result<(), Error>;
+    fn visit_keyword(&mut self, options: &KeywordOptions) -> Result<(), Error>;
+    fn visit_binary(&mut self) -> Result<(), Error>;
     fn visit_object(&mut self, properties: &HashMap<String, MappingField>) -> Result<(), Error>;
 }
 
@@ -113,8 +162,9 @@ impl MappingField {
         V: MappingVisitor,
     {
         match self {
-            MappingField::Keyword => visitor.visit_keyword(),
+            MappingField::Keyword(options) => visitor.visit_keyword(options),
             MappingField::Long => visitor.visit_long(),
+            MappingField::Binary => visitor.visit_binary(),
             MappingField::Object { properties } => {
                 visitor.visit_object(properties)?;
                 properties
@@ -133,6 +183,7 @@ impl MappingField {
 }
 
 struct DocumentMappingVisitor {
+    id: DocumentId,
     value: Value,
     scope: Vec<String>,
     output: HashMap<String, MappedField>,
@@ -140,8 +191,9 @@ struct DocumentMappingVisitor {
 }
 
 impl DocumentMappingVisitor {
-    fn new(value: &Value) -> Self {
+    fn new(id: DocumentId, value: &Value) -> Self {
         Self {
+            id,
             value: value.clone(),
             scope: Vec::new(),
             output: HashMap::new(),
@@ -160,6 +212,17 @@ impl DocumentMappingVisitor {
     fn current_path(&self) -> String {
         self.scope.join(".")
     }
+
+    fn visit_source(&mut self) -> Result<(), Error> {
+        let serialized = serde_json::to_vec(&self.value)?;
+        self.output.insert("_source".to_string(), MappedField::Binary(serialized));
+        Ok(())
+    }
+
+    fn visit_id(&mut self) -> Result<(), Error> {
+        self.output.insert("_id".to_string(), MappedField::Keyword(self.id.clone().into()));
+        Ok(())
+    }
 }
 
 impl MappingVisitor for DocumentMappingVisitor {
@@ -169,13 +232,17 @@ impl MappingVisitor for DocumentMappingVisitor {
             .as_object()
             .ok_or_else(|| format_err!("Invalid object: {}", self.value))?;
         let maybe_value = properties.get(name);
-        if maybe_value.is_none() {
-            return Ok(false);
+        if maybe_value.is_some() {
+            // TODO: clone is gonna be a perf issue here
+            self.value_stack.push(maybe_value.unwrap().clone());
+            self.scope.push(name.to_string());
+            return Ok(true);
+        } else if name == "_id" {
+            self.visit_id()?;
+        } else if name == "_source" {
+            self.visit_source()?;
         }
-        // TODO: clone is gonna be a perf issue here
-        self.value_stack.push(maybe_value.unwrap().clone());
-        self.scope.push(name.to_string());
-        Ok(true)
+        Ok(false)
     }
 
     fn leave_scope(&mut self) {
@@ -183,7 +250,11 @@ impl MappingVisitor for DocumentMappingVisitor {
         self.value_stack.pop();
     }
 
-    fn visit_keyword(&mut self) -> Result<(), Error> {
+    fn visit_keyword(&mut self, _options: &KeywordOptions) -> Result<(), Error> {
+        if self.current_path() == "_id" {
+            return self.visit_id();
+        }
+
         let keyword = self
             .current_value()
             .as_str()
@@ -201,6 +272,22 @@ impl MappingVisitor for DocumentMappingVisitor {
             .map(MappedField::Long)
             .ok_or_else(|| format_err!("Invalid long: {}", self.value))?;
         self.finalize_field(long);
+        Ok(())
+    }
+
+    fn visit_binary(&mut self) -> Result<(), Error> {
+        // TODO: Better way to handle these special cases
+        if self.current_path() == "_source" {
+            return self.visit_source();
+        }
+
+        let bytes = self
+            .current_value()
+            .as_str()
+            .ok_or_else(|| format_err!("Binary not a string: {}", self.value))
+            .and_then(|s| base64::decode(s).map_err(Error::from))
+            .map(MappedField::Binary)?;
+        self.finalize_field(bytes);
         Ok(())
     }
 
@@ -237,13 +324,27 @@ impl MappingVisitor for SchemaBuilderVisitor {
         self.scope.pop();
     }
 
-    fn visit_keyword(&mut self) -> Result<(), Error> {
-        self.builder.add_text_field(&self.current_path(), STRING);
+    fn visit_keyword(&mut self, options: &KeywordOptions) -> Result<(), Error> {
+        let mut field_options = TextOptions::default();
+        if options.index {
+            let index_options = TextFieldIndexing::default()
+                .set_index_option(IndexRecordOption::Basic);
+            field_options = field_options.set_indexing_options(index_options);
+        }
+        if options.store {
+            field_options = field_options.set_stored();
+        }
+        self.builder.add_text_field(&self.current_path(), field_options);
         Ok(())
     }
 
     fn visit_long(&mut self) -> Result<(), Error> {
         self.builder.add_i64_field(&self.current_path(), FAST);
+        Ok(())
+    }
+
+    fn visit_binary(&mut self) -> Result<(), Error> {
+        self.builder.add_bytes_field(&self.current_path());
         Ok(())
     }
 
@@ -334,5 +435,9 @@ mod test {
         let field = schema.get_field_entry(schema.get_field("object.field").unwrap());
         assert!(field.is_indexed());
         assert_eq!(field.field_type().value_type(), Type::Str);
+
+        let id_field = schema.get_field_entry(schema.get_field("_id").unwrap());
+        assert!(id_field.is_indexed());
+        assert_eq!(id_field.field_type().value_type(), Type::Bytes);
     }
 }

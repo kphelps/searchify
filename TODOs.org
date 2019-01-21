@@ -1,10 +1,15 @@
 #+TODO: TODO DOING | DONE
 
 * Current Notes
+  
+  Tower-web is terrible too. Try gotham? Bite the bullet and use rocket?
+  need to actually run tests...
+  Missing Validation:
+  - Internal mappings fields
 
 * Release Tasks
   
-** 0.1 [29%]
+** 0.1 [30%]
   :PROPERTIES:
   :COOKIE_DATA: todo recursive
   :END:
@@ -13,13 +18,14 @@
      CLOSED: [2019-01-11 Fri 11:43]
 **** DONE Bool Query
      CLOSED: [2019-01-11 Fri 11:45]
-**** TODO Respond with document information
-*** APIs [2/6]
+**** DOING Respond with document information
+*** APIs [3/6]
 **** DONE Get Index
      CLOSED: [2019-01-11 Fri 23:15]
 **** DONE Refresh API
      CLOSED: [2019-01-14 Mon 23:12]
-**** TODO Get Document by ID
+**** DONE Get Document by ID
+     CLOSED: [2019-01-21 Mon 09:35]
 **** TODO Bulk API
 **** TODO Cluster Health API
 **** TODO Index Exists
@@ -51,14 +57,16 @@
      - Strings
      - Longs
      - Objects
-*** Operations [0/4]
+*** Operations [0/5]
 **** TODO Terraform configuration
 **** TODO Deploy cluster to AWS
 **** TODO Baseline perf test
+**** TODO Structured logging
 **** TODO Expose prometheus metrics
 *** Storage [0/1]
 **** TODO Raft Log Compaction
-*** Polish [0/5]
+*** Polish [0/6]
+**** TODO Reasonable test suite
 **** TODO CI
 **** TODO pre-commit script
 **** TODO Figure out license
@@ -103,6 +111,9 @@
       https://github.com/cockroachdb/cockroach/blob/master/docs/RFCS/20160210_range_leases.md
 **** TODO Direct all reads at the lease holder
 **** TODO Heartbeat at the node level, not the shard level
+**** TODO Remove 'node id' configuration 
+     Shouldn't have to force the user to configure this, we should
+     figure out node ids from address or something else
 ** 0.3 [0%]
   :PROPERTIES:
   :COOKIE_DATA: todo recursive
@@ -122,13 +133,14 @@
 **** TODO Split / Merge(?)
 **** TODO Auto-scale replication
 * Icebox
-  
+
 ** Tooling
 *** tower-grpc is interesting, but ergonomics of pingcap's grpc are currently better. Both suck.
     
 ** Tantivy Issues
    - Max field count is 255
    - Threading is weird. I want to manage the thread pool across many indices
+   - No way to have a user-defined doc id
 
 ** Neat Ideas
    - Avoid dirty reads!
@@ -138,3 +150,5 @@
    - Autoscaling
      - Split shards at certain conditions
      - Add replicas at certain conditions
+* Impl Notes
+  Elasticsearch ids: https://github.com/elastic/elasticsearch/blob/master/server/src/main/java/org/elasticsearch/index/mapper/Uid.java#L178

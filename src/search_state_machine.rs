@@ -8,7 +8,6 @@ use std::path::Path;
 
 pub struct SearchStateMachine {
     storage: SearchStorage,
-    mappings: Mappings,
 }
 
 type SimpleObserver<T, F> = FutureStateMachineObserver<T, F>;
@@ -37,14 +36,18 @@ impl RaftStateMachine for SearchStateMachine {
 
 impl SearchStateMachine {
     pub fn new(shard_id: u64, path: impl AsRef<Path>, mappings: Mappings) -> Result<Self, Error> {
-        let storage = SearchStorage::new(shard_id, path, mappings.schema()?)?;
-        Ok(Self { storage, mappings })
+        let storage = SearchStorage::new(shard_id, path, mappings)?;
+        Ok(Self { storage })
     }
 
-    fn add_document(&mut self, request: AddDocumentOperation) -> Result<(), Error> {
-        let document: serde_json::Value = serde_json::from_str(request.get_payload())?;
-        let mapped_doc = self.mappings.map_to_document(&document)?;
-        self.storage.index(mapped_doc)
+    fn add_document(&mut self, mut request: AddDocumentOperation) -> Result<(), Error> {
+        let mut f = || {
+            let document = serde_json::from_str(request.get_payload())?;
+            self.storage.index(request.take_id().into(), &document)
+        };
+        let out = f();
+        log::error!("Crikey: {:?}", out);
+        out
     }
 
     fn refresh(&mut self) -> Result<(), Error> {
@@ -58,6 +61,7 @@ impl SearchStateMachine {
         let mut entry = SearchEntry::new();
         let mut operation = AddDocumentOperation::new();
         operation.set_payload(request.take_payload());
+        operation.set_id(request.take_document_id());
         entry.set_add_document(operation);
         let observer = SimpleObserver::new(sender, |_: &Self| IndexDocumentResponse::new());
         SimplePropose::new_for_group(request.shard_id, entry, observer)
@@ -67,11 +71,11 @@ impl SearchStateMachine {
         request: SearchRequest,
         sender: Sender<Result<SearchResponse, Error>>,
     ) -> SimplePropose {
-        let entry = SearchEntry::new();
-        let shard_id = request.shard_id;
-        // TODO: This should go through the leaseholder and avoid raft altogether
-        let observer = SimpleObserver::new(sender, move |sm: &Self| sm.storage.search(request));
-        SimplePropose::new_for_group(shard_id, entry, observer)
+        Self::propose_read(
+            request.shard_id,
+            sender,
+            move |sm: &Self| sm.storage.search(request),
+        )
     }
 
     pub fn propose_refresh(
@@ -83,5 +87,26 @@ impl SearchStateMachine {
         entry.set_refresh(operation);
         let observer = SimpleObserver::new(sender, |_: &Self| RefreshResponse::new());
         SimplePropose::new_for_group(request.shard_id, entry, observer)
+    }
+
+    pub fn get_document(
+        request: GetDocumentRequest,
+        sender: Sender<Result<GetDocumentResponse, Error>>,
+    ) -> SimplePropose {
+        Self::propose_read(
+            request.shard_id,
+            sender,
+            move |sm: &Self| sm.storage.get(&request.document_id.into()),
+        )
+    }
+
+    fn propose_read<R, F>(shard_id: u64, sender: Sender<R>, f: F) -> SimplePropose
+    where F: FnOnce(&Self) -> R + Send + Sync + 'static,
+          R: Send + Sync + 'static
+    {
+        // TODO: This should go through the leaseholder and avoid raft altogether
+        let entry = SearchEntry::new();
+        let observer = SimpleObserver::new(sender, f);
+        SimplePropose::new_for_group(shard_id, entry, observer)
     }
 }
