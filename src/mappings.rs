@@ -5,7 +5,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use tantivy::{
     schema::{
-        IndexRecordOption, Schema, SchemaBuilder, TextFieldIndexing, TextOptions, FAST, STRING,
+        IndexRecordOption, Schema, SchemaBuilder, TextFieldIndexing, TextOptions, FAST,
     },
     Document,
 };

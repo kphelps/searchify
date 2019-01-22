@@ -26,7 +26,7 @@ impl Gossip for GossipServer {
                 .clone()
                 .send(GossipEvent::GossipReceived(req))
                 .map(|_| ())
-                .map_err(|_| ()),
+                .map_err(|_| error!("Failed to update gossip state")),
         );
         let out = self.state.get_current();
         ctx.spawn(
@@ -79,7 +79,6 @@ fn run_gossip_event_handler(
     let f = receiver.for_each(move |event| {
         match event {
             GossipEvent::NewPeerDiscovered(address) => {
-                info!("Discovered: {}", address);
                 connect_to_client(state.upgrade(), self_id, &address);
             }
             GossipEvent::GossipReceived(data) => {
@@ -170,13 +169,6 @@ impl GossipState {
             .and_then(|node_id| self.get_client(node_id))
     }
 
-    fn add_connection(&self, addr: &str, sender: oneshot::Sender<()>, rpc_client: RpcClient) {
-        self.inner
-            .write()
-            .unwrap()
-            .add_connection(addr, sender, rpc_client)
-    }
-
     fn merge_gossip(&self, gossip: GossipData) {
         self.inner.write().unwrap().merge_gossip(gossip)
     }
@@ -230,10 +222,13 @@ impl InnerGossipState {
     fn merge_gossip(&mut self, gossip: GossipData) {
         let peer_id = gossip.get_node_id();
 
-        self.current
-            .mut_peer_addresses()
-            .entry(peer_id)
-            .or_insert(gossip.get_address().to_string());
+        let current_addrs = self.current.mut_peer_addresses();
+        if current_addrs.get(&peer_id).is_none() {
+            let address = gossip.get_address();
+            current_addrs.insert(peer_id, address.to_string());
+            self.publish_peer_discovered(address);
+        }
+
         gossip
             .get_node_liveness()
             .values()
@@ -285,9 +280,16 @@ struct ClientContext {
 }
 
 fn connect_to_client(state: GossipState, self_id: u64, address: &str) {
+    let mut locked_state = state.inner.write().unwrap();
+    if locked_state.connections.contains_key(address) {
+        return;
+    }
+
+    info!("Discovered: {}", address);
     let client = RpcClient::new(self_id, address);
     let (sender, receiver) = oneshot::channel();
-    state.add_connection(address, sender, client.clone());
+    locked_state.add_connection(address, sender, client.clone());
+    drop(locked_state);
     let gossip_stream = Interval::new(Instant::now(), Duration::from_secs(5))
         .map(|_| ClientEvent::GossipTick)
         .map_err(|err| error!("Error in gossip tick: {:?}", err));

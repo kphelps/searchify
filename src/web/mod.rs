@@ -4,6 +4,7 @@ use crate::node_router::NodeRouterHandle;
 use crate::query_api::SearchQuery;
 use failure::Error;
 use futures::{prelude::*, sync::oneshot};
+use std::time::Instant;
 use tokio::net::TcpListener;
 use tower_web::*;
 

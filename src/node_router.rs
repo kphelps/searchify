@@ -7,7 +7,7 @@ use crate::rpc_client::RpcClient;
 use failure::{err_msg, Error};
 use futures::{future, prelude::*, sync::oneshot};
 use log::*;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio_timer::Interval;
