@@ -22,6 +22,12 @@ impl From<String> for DocumentId {
     }
 }
 
+impl<'a> From<&'a str> for DocumentId {
+    fn from(string: &'a str) -> Self {
+        Self::from(string.to_string())
+    }
+}
+
 impl From<DocumentId> for String {
     fn from(document_id: DocumentId) -> Self {
         document_id.0

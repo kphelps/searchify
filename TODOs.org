@@ -2,14 +2,15 @@
 
 * Current Notes
   
+  [[file:src/search_storage.rs:://%20TODO:%20why%20is%20this%20failing?!?!][Failing test to fix]] 
+  
   Tower-web is terrible too. Try gotham? Bite the bullet and use rocket?
-  need to actually run tests...
   Missing Validation:
   - Internal mappings fields
 
 * Release Tasks
   
-** 0.1 [33%]
+** 0.1 [26%]
   :PROPERTIES:
   :COOKIE_DATA: todo recursive
   :END:
@@ -19,7 +20,7 @@
 **** DONE Bool Query
      CLOSED: [2019-01-11 Fri 11:45]
 **** DONE Respond with document information
-*** APIs [3/6]
+*** APIs [3/8]
 **** DONE Get Index
      CLOSED: [2019-01-11 Fri 23:15]
 **** DONE Refresh API
@@ -28,6 +29,8 @@
      CLOSED: [2019-01-21 Mon 09:35]
 **** TODO Bulk API
 **** TODO Cluster Health API
+**** TODO Nodes cat API
+**** TODO Proper errors
 **** TODO Index Exists
      - tower-web doesn't support HEAD. Need to implement it there.
 *** Clustering [3/7]
@@ -65,8 +68,16 @@
 **** TODO Expose prometheus metrics
 *** Storage [0/1]
 **** TODO Raft Log Compaction
+*** Tests [0/7]
+**** TODO Search Storage
+**** TODO Raft Storage
+**** TODO Node Router
+**** TODO Gossip
+**** TODO Web API
+**** TODO Meta State Machine
+**** TODO Search State Machine
 *** Polish [0/6]
-**** TODO Reasonable test suite
+**** DOING Reasonable test suite
 **** TODO CI
 **** TODO pre-commit script
 **** TODO Figure out license

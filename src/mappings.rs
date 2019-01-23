@@ -57,7 +57,7 @@ pub struct Mappings {
 }
 
 impl Mappings {
-    pub fn map_to_document(&self, id: DocumentId, doc: &Value) -> Result<MappedDocument, Error> {
+    pub fn map_to_document(&self, id: &DocumentId, doc: &Value) -> Result<MappedDocument, Error> {
         let mut visitor = DocumentMappingVisitor::new(id, doc);
         self.accept(&mut visitor)?;
 
@@ -181,9 +181,9 @@ struct DocumentMappingVisitor {
 }
 
 impl DocumentMappingVisitor {
-    fn new(id: DocumentId, value: &Value) -> Self {
+    fn new(id: &DocumentId, value: &Value) -> Self {
         Self {
-            id,
+            id: id.clone(),
             value: value.clone(),
             scope: Vec::new(),
             output: HashMap::new(),
@@ -321,8 +321,9 @@ impl MappingVisitor for SchemaBuilderVisitor {
     fn visit_keyword(&mut self, options: &KeywordOptions) -> Result<(), Error> {
         let mut field_options = TextOptions::default();
         if options.index {
-            let index_options =
-                TextFieldIndexing::default().set_index_option(IndexRecordOption::Basic);
+            let index_options = TextFieldIndexing::default()
+                .set_index_option(IndexRecordOption::Basic)
+                .set_tokenizer("raw");
             field_options = field_options.set_indexing_options(index_options);
         }
         if options.store {
@@ -351,7 +352,7 @@ impl MappingVisitor for SchemaBuilderVisitor {
 #[cfg(test)]
 mod test {
     use super::*;
-    use tantivy::schema::Type;
+    use tantivy::schema::{FieldType, Type};
 
     fn new_mappings() -> Mappings {
         let data = r#"
@@ -376,14 +377,20 @@ mod test {
         assert_eq!(mappings.properties.len(), 3);
         assert_eq!(
             *mappings.properties.get("hello").unwrap(),
-            MappingField::Keyword {}
+            MappingField::Keyword(KeywordOptions{
+                index: true,
+                store: false,
+            })
         );
         assert_eq!(
             *mappings.properties.get("world").unwrap(),
             MappingField::Long {}
         );
         let mut obj = HashMap::new();
-        let field = MappingField::Keyword {};
+        let field = MappingField::Keyword(KeywordOptions{
+            index: true,
+            store: false,
+        });
         obj.insert("field".to_string(), field);
         assert_eq!(
             *mappings.properties.get("object").unwrap(),
@@ -399,7 +406,8 @@ mod test {
             }
           }"#;
         let raw_doc: Value = serde_json::from_str(raw_doc_data).unwrap();
-        let mapped_doc = mappings.map_to_document(&raw_doc).unwrap();
+        let doc_id = "id";
+        let mapped_doc = mappings.map_to_document(&doc_id.into(), &raw_doc).unwrap();
         let mut fields = HashMap::new();
         fields.insert(
             "hello".to_string(),
@@ -409,6 +417,14 @@ mod test {
         fields.insert(
             "object.field".to_string(),
             MappedField::Keyword("works".to_string()),
+        );
+        fields.insert(
+            "_id".to_string(),
+            MappedField::Keyword(doc_id.to_string()),
+        );
+        fields.insert(
+            "_source".to_string(),
+            MappedField::Binary(serde_json::to_vec(&raw_doc).unwrap()),
         );
         let expected = MappedDocument { fields };
         assert_eq!(mapped_doc, expected);
@@ -422,6 +438,11 @@ mod test {
         let hello = schema.get_field_entry(schema.get_field("hello").unwrap());
         assert!(hello.is_indexed());
         assert_eq!(hello.field_type().value_type(), Type::Str);
+        if let FieldType::Str(hello_options) = hello.field_type() {
+            assert_eq!(hello_options.get_indexing_options().unwrap().tokenizer(), "raw");
+        } else {
+            unreachable!();
+        }
 
         let world = schema.get_field_entry(schema.get_field("world").unwrap());
         assert!(world.is_int_fast());
@@ -430,9 +451,24 @@ mod test {
         let field = schema.get_field_entry(schema.get_field("object.field").unwrap());
         assert!(field.is_indexed());
         assert_eq!(field.field_type().value_type(), Type::Str);
+        if let FieldType::Str(field_options) = field.field_type() {
+            assert_eq!(field_options.get_indexing_options().unwrap().tokenizer(), "raw");
+        } else {
+            unreachable!();
+        }
 
         let id_field = schema.get_field_entry(schema.get_field("_id").unwrap());
         assert!(id_field.is_indexed());
-        assert_eq!(id_field.field_type().value_type(), Type::Bytes);
+        assert_eq!(id_field.field_type().value_type(), Type::Str);
+        if let FieldType::Str(id_options) = id_field.field_type() {
+            assert_eq!(id_options.get_indexing_options().unwrap().tokenizer(), "raw");
+        } else {
+            unreachable!();
+        }
+
+        let source_field = schema.get_field_entry(schema.get_field("_source").unwrap());
+        assert!(!source_field.is_indexed());
+        assert!(source_field.is_stored());
+        assert_eq!(source_field.field_type().value_type(), Type::Str);
     }
 }
