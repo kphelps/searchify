@@ -118,7 +118,7 @@ impl ToQuery for TermQuery {
 }
 
 impl QueryValue {
-    fn to_term(&self, field_name: &str, schema: &Schema) -> Result<Term, Error> {
+    pub fn to_term(&self, field_name: &str, schema: &Schema) -> Result<Term, Error> {
         let field = schema
             .get_field(field_name)
             .ok_or_else(|| QueryError::FieldNotFound(field_name.to_string()))?;

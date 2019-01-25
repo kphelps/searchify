@@ -185,6 +185,22 @@ impl NodeRouter {
             })
     }
 
+    pub fn delete_document(
+        &self,
+        index_name: String,
+        id: DocumentId,
+    ) -> impl Future<Item = DeleteDocumentResponse, Error = Error> {
+        let resolver = self.gossip_state.clone();
+        self.get_shard_for_document(&index_name, &id)
+            .and_then(move |shard| {
+                let replica_id = shard.replicas.first().unwrap().id;
+                resolver
+                    .get_client(replica_id)
+                    .into_future()
+                    .and_then(move |client| client.delete_document(shard.id, id))
+            })
+    }
+
     pub fn refresh_index(&self, index_name: &str) -> impl Future<Item = (), Error = Error> {
         let resolver = self.gossip_state.clone();
         self.get_cached_index(index_name)

@@ -51,7 +51,8 @@ struct SearchResponse {
 struct ShardResultResponse {
     total: u64,
     successful: u64,
-    skipped: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    skipped: Option<u64>,
     failed: u64,
 }
 
@@ -84,6 +85,19 @@ struct GetDocumentResponse {
     #[serde(rename = "_source")]
     #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<serde_json::Value>,
+}
+
+#[derive(Response, Serialize)]
+struct DeleteDocumentResponse {
+    #[serde(rename = "_shards")]
+    shards: ShardResultResponse,
+    #[serde(rename = "_index")]
+    index_name: String,
+    #[serde(rename = "_id")]
+    id: String,
+    #[serde(rename = "_version")]
+    version: String,
+    result: String,
 }
 
 #[derive(Response)]
@@ -155,7 +169,7 @@ impl_web! {
                             total: result.shard_count,
                             successful: result.success_count,
                             failed: result.shard_count - result.success_count,
-                            skipped: 0,
+                            skipped: Some(0),
                         },
                     })
                 })
@@ -242,6 +256,30 @@ impl_web! {
                         found: response.found,
                         version: 0,
                         source: source,
+                    })
+                })
+        }
+
+        #[delete("/:name/:id")]
+        #[content_type("json")]
+        fn delete_document(
+            &self,
+            name: String,
+            id: String,
+        ) -> impl Future<Item = DeleteDocumentResponse, Error = Error> + Send {
+            self.node_router.delete_document(name.clone(), id.clone().into())
+                .and_then(move |response| {
+                    Ok(DeleteDocumentResponse{
+                        shards: ShardResultResponse {
+                            total: 1,
+                            successful: if response.success { 1 } else { 0 },
+                            failed: if response.success { 0 } else { 1 },
+                            skipped: None,
+                        },
+                        index_name: name,
+                        id: id,
+                        version: "0".to_string(),
+                        result: "deleted".to_string(),
                     })
                 })
         }

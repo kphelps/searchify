@@ -25,6 +25,10 @@ impl RaftStateMachine for SearchStateMachine {
                 self.add_document(operation)?;
                 false
             }
+            SearchEntry_oneof_operation::delete_document(operation) => {
+                self.delete_document(operation)?;
+                false
+            }
             SearchEntry_oneof_operation::refresh(_) => {
                 self.refresh()?;
                 true
@@ -41,13 +45,12 @@ impl SearchStateMachine {
     }
 
     fn add_document(&mut self, mut request: AddDocumentOperation) -> Result<(), Error> {
-        let mut f = || {
-            let document = serde_json::from_str(request.get_payload())?;
-            self.storage.index(&request.take_id().into(), &document)
-        };
-        let out = f();
-        log::error!("Crikey: {:?}", out);
-        out
+        let document = serde_json::from_str(request.get_payload())?;
+        self.storage.index(&request.take_id().into(), &document)
+    }
+
+    fn delete_document(&mut self, mut request: DeleteDocumentOperation) -> Result<(), Error> {
+        self.storage.delete(request.take_id().into())
     }
 
     fn refresh(&mut self) -> Result<(), Error> {
@@ -64,6 +67,22 @@ impl SearchStateMachine {
         operation.set_id(request.take_document_id());
         entry.set_add_document(operation);
         let observer = SimpleObserver::new(sender, |_: &Self| IndexDocumentResponse::new());
+        SimplePropose::new_for_group(request.shard_id, entry, observer)
+    }
+
+    pub fn propose_delete_document(
+        mut request: DeleteDocumentRequest,
+        sender: Sender<DeleteDocumentResponse>,
+    ) -> SimplePropose {
+        let mut entry = SearchEntry::new();
+        let mut operation = DeleteDocumentOperation::new();
+        operation.set_id(request.take_document_id());
+        entry.set_delete_document(operation);
+        let observer = SimpleObserver::new(sender, |_: &Self| {
+            let mut response = DeleteDocumentResponse::new();
+            response.success = true;
+            response
+        });
         SimplePropose::new_for_group(request.shard_id, entry, observer)
     }
 
@@ -92,7 +111,7 @@ impl SearchStateMachine {
         sender: Sender<Result<GetDocumentResponse, Error>>,
     ) -> SimplePropose {
         Self::propose_read(request.shard_id, sender, move |sm: &Self| {
-            sm.storage.get(&request.document_id.into())
+            sm.storage.get(request.document_id.into())
         })
     }
 

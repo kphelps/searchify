@@ -194,6 +194,17 @@ impl Internal for InternalServer {
         propose_api_result(&self.search_raft_router, proposal, receiver, ctx, sink);
     }
 
+    fn delete_document(
+        &mut self,
+        ctx: RpcContext,
+        req: DeleteDocumentRequest,
+        sink: UnarySink<DeleteDocumentResponse>,
+    ) {
+        let (sender, receiver) = channel();
+        let proposal = SearchStateMachine::propose_delete_document(req, sender);
+        propose_api(&self.search_raft_router, proposal, receiver, ctx, sink);
+    }
+
     fn search(&mut self, ctx: RpcContext, req: SearchRequest, sink: UnarySink<SearchResponse>) {
         let (sender, receiver) = channel();
         let proposal = SearchStateMachine::search(req, sender);

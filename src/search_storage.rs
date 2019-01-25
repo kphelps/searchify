@@ -47,9 +47,15 @@ impl SearchStorage {
             .to_documents(&self.schema)
             .into_iter()
             .for_each(|doc| {
-                println!("[shard-{}] Indexing doc: {:?}", self.shard_id, doc);
                 self.writer.add_document(doc);
             });
+        Ok(())
+    }
+
+    pub fn delete(&mut self, id: DocumentId) -> Result<(), Error> {
+        let query_value = QueryValue::String(id.into());
+        let term = query_value.to_term("_id", &self.schema)?;
+        self.writer.delete_term(term);
         Ok(())
     }
 
@@ -64,7 +70,6 @@ impl SearchStorage {
         let collector = (Count, docs_collector);
         let searcher = self.index.searcher();
         let raw_query = query.to_query(&self.schema, &searcher)?;
-        println!("{:?}", searcher.search(&tantivy::query::AllQuery, &collector)?);
         let result = searcher.search(&raw_query, &collector)?;
         let mut response = SearchResponse::new();
         response.set_total(result.0 as u64);
@@ -72,20 +77,18 @@ impl SearchStorage {
             .1
             .into_iter()
             .map(|(score, addr)| {
-                self.get_hit(&searcher, addr)
-                    .map(|mut hit| {
-                        hit.set_score(score);
-                        hit
-                    })
+                self.get_hit(&searcher, addr).map(|mut hit| {
+                    hit.set_score(score);
+                    hit
+                })
             })
             .collect::<Result<Vec<SearchHit>, Error>>()?;
         response.set_hits(hits.into());
         Ok(response)
     }
 
-    pub fn get(&self, document_id: &DocumentId) -> Result<GetDocumentResponse, Error> {
-        let query = TermQuery::new("_id", QueryValue::String(document_id.id().to_string()));
-        println!("[shard-{}] query: {:?}", self.shard_id, query);
+    pub fn get(&self, document_id: DocumentId) -> Result<GetDocumentResponse, Error> {
+        let query = TermQuery::new("_id", QueryValue::String(document_id.into()));
         let collector = TopDocs::with_limit(1);
         let searcher = self.index.searcher();
         let result = searcher.search(&query.to_query(&self.schema, &searcher)?, &collector)?;
@@ -111,7 +114,10 @@ impl SearchStorage {
     fn get_hit(&self, searcher: &Searcher, addr: DocAddress) -> Result<SearchHit, Error> {
         let mut hit = SearchHit::new();
         let doc = searcher.doc(addr)?;
-        let source_field = self.schema.get_field("_source").expect("document source field");
+        let source_field = self
+            .schema
+            .get_field("_source")
+            .expect("document source field");
         let id_field = self.schema.get_field("_id").expect("document id field");
         let source = match doc.get_first(source_field).expect("document source") {
             Value::Bytes(bytes) => bytes.clone(),
@@ -143,11 +149,7 @@ mod test {
     }
 
     fn new_storage(dir: &tempfile::TempDir) -> SearchStorage {
-        SearchStorage::new(
-            1,
-            dir.path(),
-            new_mappings(),
-        ).unwrap()
+        SearchStorage::new(1, dir.path(), new_mappings()).unwrap()
     }
 
     #[test]
@@ -184,7 +186,10 @@ mod test {
         storage.refresh().unwrap();
         let result = storage.get(&doc_id).unwrap();
         assert!(result.get_found());
-        assert_eq!(result.get_source().to_vec(), serde_json::to_vec(&document).unwrap());
+        assert_eq!(
+            result.get_source().to_vec(),
+            serde_json::to_vec(&document).unwrap()
+        );
     }
 
     #[test]

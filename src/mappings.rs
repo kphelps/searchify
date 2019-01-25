@@ -4,9 +4,7 @@ use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use tantivy::{
-    schema::{
-        IndexRecordOption, Schema, SchemaBuilder, TextFieldIndexing, TextOptions, FAST,
-    },
+    schema::{IndexRecordOption, Schema, SchemaBuilder, TextFieldIndexing, TextOptions, FAST},
     Document,
 };
 
@@ -377,7 +375,7 @@ mod test {
         assert_eq!(mappings.properties.len(), 3);
         assert_eq!(
             *mappings.properties.get("hello").unwrap(),
-            MappingField::Keyword(KeywordOptions{
+            MappingField::Keyword(KeywordOptions {
                 index: true,
                 store: false,
             })
@@ -387,7 +385,7 @@ mod test {
             MappingField::Long {}
         );
         let mut obj = HashMap::new();
-        let field = MappingField::Keyword(KeywordOptions{
+        let field = MappingField::Keyword(KeywordOptions {
             index: true,
             store: false,
         });
@@ -418,10 +416,7 @@ mod test {
             "object.field".to_string(),
             MappedField::Keyword("works".to_string()),
         );
-        fields.insert(
-            "_id".to_string(),
-            MappedField::Keyword(doc_id.to_string()),
-        );
+        fields.insert("_id".to_string(), MappedField::Keyword(doc_id.to_string()));
         fields.insert(
             "_source".to_string(),
             MappedField::Binary(serde_json::to_vec(&raw_doc).unwrap()),
@@ -439,7 +434,10 @@ mod test {
         assert!(hello.is_indexed());
         assert_eq!(hello.field_type().value_type(), Type::Str);
         if let FieldType::Str(hello_options) = hello.field_type() {
-            assert_eq!(hello_options.get_indexing_options().unwrap().tokenizer(), "raw");
+            assert_eq!(
+                hello_options.get_indexing_options().unwrap().tokenizer(),
+                "raw"
+            );
         } else {
             unreachable!();
         }
@@ -452,7 +450,10 @@ mod test {
         assert!(field.is_indexed());
         assert_eq!(field.field_type().value_type(), Type::Str);
         if let FieldType::Str(field_options) = field.field_type() {
-            assert_eq!(field_options.get_indexing_options().unwrap().tokenizer(), "raw");
+            assert_eq!(
+                field_options.get_indexing_options().unwrap().tokenizer(),
+                "raw"
+            );
         } else {
             unreachable!();
         }
@@ -461,7 +462,10 @@ mod test {
         assert!(id_field.is_indexed());
         assert_eq!(id_field.field_type().value_type(), Type::Str);
         if let FieldType::Str(id_options) = id_field.field_type() {
-            assert_eq!(id_options.get_indexing_options().unwrap().tokenizer(), "raw");
+            assert_eq!(
+                id_options.get_indexing_options().unwrap().tokenizer(),
+                "raw"
+            );
         } else {
             unreachable!();
         }

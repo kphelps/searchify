@@ -134,6 +134,20 @@ impl RpcClient {
         )
     }
 
+    pub fn delete_document(
+        &self,
+        shard_id: u64,
+        document_id: DocumentId,
+    ) -> impl Future<Item = DeleteDocumentResponse, Error = Error> {
+        let mut request = DeleteDocumentRequest::new();
+        request.shard_id = shard_id;
+        request.document_id = document_id.into();
+        futurize(
+            self.client
+                .delete_document_async_opt(&request, self.options()),
+        )
+    }
+
     pub fn get_document(
         &self,
         shard_id: u64,
