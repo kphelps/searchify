@@ -35,6 +35,7 @@ mod search_state_machine;
 mod search_storage;
 mod shard;
 mod shard_tracker;
+mod version_tracker;
 mod web;
 
 fn main() {

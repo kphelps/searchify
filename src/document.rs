@@ -1,8 +1,17 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
 
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct DocumentId(String);
+
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct DocumentVersion(u64);
+
+pub enum ExpectedVersion {
+    Any,
+    Version(DocumentVersion),
+    Deleted,
+}
 
 impl DocumentId {
     pub fn routing_id(&self) -> u64 {
@@ -31,5 +40,11 @@ impl<'a> From<&'a str> for DocumentId {
 impl From<DocumentId> for String {
     fn from(document_id: DocumentId) -> Self {
         document_id.0
+    }
+}
+
+impl From<u64> for DocumentVersion {
+    fn from(version: u64) -> Self {
+        DocumentVersion(version)
     }
 }

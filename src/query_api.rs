@@ -122,7 +122,6 @@ impl QueryValue {
         let field = schema
             .get_field(field_name)
             .ok_or_else(|| QueryError::FieldNotFound(field_name.to_string()))?;
-        println!("{} => {:?}", field_name, field);
         let term = match self {
             QueryValue::String(value) => Term::from_field_text(field, value),
             QueryValue::Long(value) => Term::from_field_i64(field, *value),

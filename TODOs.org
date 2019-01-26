@@ -10,7 +10,7 @@
 
 * Release Tasks
   
-** 0.1 [29%]
+** 0.1 [30%]
   :PROPERTIES:
   :COOKIE_DATA: todo recursive
   :END:
@@ -35,6 +35,7 @@
 **** TODO Proper errors
 **** TODO Index Exists
      - tower-web doesn't support HEAD. Need to implement it there.
+**** TODO Optimize Get(id)
 *** Clustering [3/7]
 **** DONE Allow nodes to join without joining the master raft group
      CLOSED: [2019-01-20 Sun 11:28]
@@ -50,11 +51,17 @@
      - Done for indices. Need to figure out when to refresh it and do it for shard-level routing
      - Update local cache from gossips
      - Check meta layer synchronously if cache missed / was wrong
-*** Indexing [1/4]
+*** Indexing [2/5]
 **** DONE Commit on an interval instead of per-operation
      CLOSED: [2019-01-14 Mon 08:26]
 **** TODO Upsert semantics
-**** TODO Create semantics
+**** DONE Create semantics
+     CLOSED: [2019-01-26 Sat 10:03]
+     keep track of indexed versions
+     when commit(), trim the in-memory map
+     when looking up, check the map for a version. If absent, use a searcher
+**** TODO Optimistic Locking
+     Deletes are hard - elasticsearch uses a time window
 **** TODO Response format
 *** Schema [1/1]
 **** DONE Basic data types
@@ -91,7 +98,7 @@
   :PROPERTIES:
   :COOKIE_DATA: todo recursive
   :END:
-*** Search [0/4]
+*** Search [0/5]
 **** TODO Specify document count limit
 **** TODO Sepcify document offset
 **** TODO Sorting
