@@ -10,7 +10,7 @@
 
 * Release Tasks
   
-** 0.1 [30%]
+** 0.1 [32%]
   :PROPERTIES:
   :COOKIE_DATA: todo recursive
   :END:
@@ -51,10 +51,12 @@
      - Done for indices. Need to figure out when to refresh it and do it for shard-level routing
      - Update local cache from gossips
      - Check meta layer synchronously if cache missed / was wrong
-*** Indexing [2/5]
+*** Indexing [3/5]
 **** DONE Commit on an interval instead of per-operation
      CLOSED: [2019-01-14 Mon 08:26]
-**** TODO Upsert semantics
+**** DONE Upsert semantics
+     CLOSED: [2019-01-26 Sat 10:17]
+
 **** DONE Create semantics
      CLOSED: [2019-01-26 Sat 10:03]
      keep track of indexed versions
