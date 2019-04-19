@@ -8,17 +8,6 @@ use tantivy::{
     Document,
 };
 
-// How do we represent raw documents (from the API)
-//   - serde_json::Value?
-//
-// How do we do the mapping?
-//   - custom code
-//   - serde
-//
-// How should different field types be represented?
-//   - traits?
-//   - enum? easier to serde...
-
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct MappedDocument {
     fields: HashMap<String, MappedField>,

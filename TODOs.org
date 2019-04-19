@@ -10,7 +10,7 @@
 
 * Release Tasks
   
-** 0.1 [32%]
+** 0.1 [34%]
   :PROPERTIES:
   :COOKIE_DATA: todo recursive
   :END:
@@ -80,8 +80,9 @@
 *** Storage [0/2]
 **** TODO Raft Log Compaction
 **** TODO Indexing should be async, not in raft loop
-*** Tests [0/7]
-**** TODO Search Storage
+*** Tests [1/7]
+**** DONE Search Storage
+     CLOSED: [2019-01-26 Sat 10:22]
 **** TODO Raft Storage
 **** TODO Node Router
 **** TODO Gossip
