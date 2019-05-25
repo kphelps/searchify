@@ -10,6 +10,6 @@ fn main() {
     file_paths
         .iter()
         .for_each(|path| println!("cargo:rerun-if-changed={}", path));
-    protoc_grpcio::compile_grpc_protos(&file_paths, &[proto_root], "src/proto/")
+    protoc_grpcio::compile_grpc_protos(&file_paths, &[proto_root], "src/proto/", None)
         .expect("Failed to compile gRPC definitions!");
 }

@@ -41,7 +41,6 @@ git = "https://github.com/pingcap/rust-rocksdb.git"
 
 [build-dependencies]
 protoc-grpcio = "*"
-tower-grpc-build = { git = "https://github.com/tower-rs/tower-grpc" }
 
 [dev-dependencies]
 tempfile = "*"

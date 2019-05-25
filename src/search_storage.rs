@@ -4,19 +4,19 @@ use crate::proto::{GetDocumentResponse, SearchHit, SearchRequest, SearchResponse
 use crate::query_api::{QueryValue, SearchQuery, TermQuery, ToQuery};
 use crate::version_tracker::{TrackedVersion, VersionTracker};
 use failure::{Error, Fail};
-use log::*;
 use std::fs::DirBuilder;
 use std::path::Path;
 use tantivy::{
     collector::{Count, TopDocs},
     directory::MmapDirectory,
     schema::*,
-    DocAddress, Index, IndexWriter, Searcher,
+    DocAddress, Index, IndexReader, IndexWriter, Searcher,
 };
 
 pub struct SearchStorage {
     shard_id: u64,
     index: Index,
+    reader: IndexReader,
     writer: IndexWriter,
     mappings: Mappings,
     schema: Schema,
@@ -38,11 +38,13 @@ impl SearchStorage {
         DirBuilder::new().recursive(true).create(&path)?;
         let directory = MmapDirectory::open(path)?;
         let index = Index::open_or_create(directory, schema.clone())?;
+        let reader = index.reader()?;
         let writer = index.writer(200_000_000)?;
 
         Ok(SearchStorage {
             shard_id,
             index,
+            reader,
             writer,
             mappings,
             schema: schema,
@@ -99,7 +101,7 @@ impl SearchStorage {
         };
         let docs_collector = TopDocs::with_limit(limit as usize);
         let collector = (Count, docs_collector);
-        let searcher = self.index.searcher();
+        let searcher = self.reader.searcher();
         let raw_query = query.to_query(&self.schema, &searcher)?;
         let result = searcher.search(&raw_query, &collector)?;
         let mut response = SearchResponse::new();
@@ -119,7 +121,7 @@ impl SearchStorage {
     }
 
     pub fn get(&self, document_id: DocumentId) -> Result<GetDocumentResponse, Error> {
-        let searcher = self.index.searcher();
+        let searcher = self.reader.searcher();
         let maybe_addr = self.resolve_document_id(&searcher, document_id)?;
         let mut response = GetDocumentResponse::new();
         response.set_found(maybe_addr.is_some());
@@ -133,7 +135,7 @@ impl SearchStorage {
         self.versions.pre_commmit();
         self.writer.commit()?;
         self.versions.post_commit();
-        self.index.load_searchers()?;
+        let _ = self.reader.reload();
         Ok(())
     }
 
@@ -167,7 +169,7 @@ impl SearchStorage {
             Some(TrackedVersion::Live(_)) => Ok(true),
             Some(TrackedVersion::Deleted) => Ok(false),
             None => {
-                let searcher = self.index.searcher();
+                let searcher = self.reader.searcher();
                 Ok(self.resolve_document_id(&searcher, id)?.is_some())
             }
         }

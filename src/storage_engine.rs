@@ -54,8 +54,8 @@ impl StorageEngine {
     {
         let mut options = ReadOptions::new();
         let start_bytes: &[u8] = &start_key.into_key();
-        options.set_iterate_lower_bound(start_bytes);
-        options.set_iterate_upper_bound(&end_key.into_key());
+        options.set_iterate_lower_bound(start_bytes.to_vec());
+        options.set_iterate_upper_bound(end_key.into_key());
         let mut it = self.db.iter_opt(options);
         it.seek(start_bytes.into());
         while it.valid() {
@@ -109,7 +109,7 @@ impl MessageWriteBatch {
     }
 
     pub fn commit(self) -> Result<(), Error> {
-        self.db.write(self.batch).map_err(err_msg)
+        self.db.write(&self.batch).map_err(err_msg)
     }
 }
 
