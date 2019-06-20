@@ -10,16 +10,18 @@
 
 * Release Tasks
   
-** 0.1 [34%]
+** 0.1 [36%]
   :PROPERTIES:
   :COOKIE_DATA: todo recursive
   :END:
-*** Search [3/3] 
+*** Search [4/4] 
 **** DONE Term Query
      CLOSED: [2019-01-11 Fri 11:43]
 **** DONE Bool Query
      CLOSED: [2019-01-11 Fri 11:45]
 **** DONE Respond with document information
+**** DONE match_all
+     CLOSED: [2019-05-25 Sat 10:13]
 *** APIs [4/9]
 **** DONE Get Index
      CLOSED: [2019-01-11 Fri 23:15]
@@ -31,7 +33,6 @@
      CLOSED: [2019-01-24 Thu 22:27]
 **** TODO Bulk API
 **** TODO Cluster Health API
-**** TODO Nodes cat API
 **** TODO Proper errors
 **** TODO Index Exists
      - tower-web doesn't support HEAD. Need to implement it there.
@@ -112,6 +113,7 @@
 **** TODO Update index settings
 **** TODO API docs
 **** TODO Per-shard response information
+**** TODO Nodes cat API
 *** Indexing [0/4]
 **** TODO Partial Failure in bulk requests
 **** TODO Update?

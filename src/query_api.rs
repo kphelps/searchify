@@ -25,10 +25,16 @@ pub enum QueryValue {
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub enum SearchQuery {
+    #[serde(rename = "match_all")]
+    MatchAllQuery(MatchAllQuery),
     #[serde(rename = "bool")]
     BoolQuery(BoolQuery),
     #[serde(rename = "term")]
     TermQuery(TermQuery),
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize, Serialize)]
+pub struct MatchAllQuery {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -56,6 +62,7 @@ impl ToQuery for SearchQuery {
         match self {
             SearchQuery::BoolQuery(query) => query.to_query(schema, searcher),
             SearchQuery::TermQuery(query) => query.to_query(schema, searcher),
+            SearchQuery::MatchAllQuery(query) => query.to_query(schema, searcher),
         }
     }
 }
@@ -114,6 +121,12 @@ impl ToQuery for TermQuery {
                     .into(),
             )
         }
+    }
+}
+
+impl ToQuery for MatchAllQuery {
+    fn to_query(&self, _: &Schema, _: &Searcher) -> QueryResult {
+        Ok(Box::new(query::AllQuery))
     }
 }
 

@@ -208,7 +208,6 @@ impl_web! {
         #[get("/:name/")]
         #[content_type("json")]
         fn get_index(&self, name: String) -> impl Future<Item = Index, Error = Error> + Send {
-            log::info!("Getting: {}", name);
             self.node_router.get_index(name)
                 .map(|state| Index{
                     index_name: state.name,
