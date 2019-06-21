@@ -1,3 +1,4 @@
+use crate::cluster_state::ClusterState;
 use crate::config::Config;
 use crate::document::DocumentId;
 use crate::gossip::GossipState;
@@ -15,7 +16,7 @@ use tokio_timer::Interval;
 pub struct NodeRouter {
     gossip_state: GossipState,
     tasks: Arc<Mutex<Vec<oneshot::Sender<()>>>>,
-    index_cache: Arc<RwLock<HashMap<String, IndexState>>>,
+    cluster_state: ClusterState,
 }
 
 #[derive(Clone)]
@@ -24,7 +25,11 @@ pub struct NodeRouterHandle {
 }
 
 impl NodeRouter {
-    fn new(config: &Config, gossip_state: GossipState) -> Self {
+    fn new(
+        config: &Config,
+        gossip_state: GossipState,
+        cluster_state: ClusterState,
+    ) -> Self {
         let mut clients = HashMap::new();
         let self_address = format!("127.0.0.1:{}", config.port);
         clients.insert(
@@ -33,13 +38,17 @@ impl NodeRouter {
         );
         Self {
             gossip_state,
+            cluster_state,
             tasks: Arc::new(Mutex::new(Vec::new())),
-            index_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
-    pub fn start(config: &Config, gossip_state: GossipState) -> Result<NodeRouterHandle, Error> {
-        let router = NodeRouter::new(config, gossip_state);
+    pub fn start(
+        config: &Config,
+        gossip_state: GossipState,
+        cluster_state: ClusterState,
+    ) -> Result<NodeRouterHandle, Error> {
+        let router = NodeRouter::new(config, gossip_state, cluster_state);
         let handle = NodeRouterHandle {
             handle: Arc::new(router),
         };
@@ -118,6 +127,7 @@ impl NodeRouter {
         payload: serde_json::Value,
     ) -> impl Future<Item = (), Error = Error> {
         self.get_shard_client_for_document(&index_name, &document_id)
+            .into_future()
             .and_then(move |shard_client| {
                 shard_client.client.index_document(
                     &index_name,
@@ -134,11 +144,8 @@ impl NodeRouter {
         document_id: DocumentId,
     ) -> impl Future<Item = GetDocumentResponse, Error = Error> {
         self.get_shard_client_for_document(&index_name, &document_id)
-            .and_then(move |shard_client| {
-                shard_client
-                    .client
-                    .get_document(shard_client.shard.id, document_id)
-            })
+            .into_future()
+            .and_then(|client| client.client.get_document(client.shard.id, document_id))
     }
 
     pub fn search(
@@ -190,20 +197,15 @@ impl NodeRouter {
         index_name: String,
         id: DocumentId,
     ) -> impl Future<Item = DeleteDocumentResponse, Error = Error> {
-        let resolver = self.gossip_state.clone();
-        self.get_shard_for_document(&index_name, &id)
-            .and_then(move |shard| {
-                let replica_id = shard.replicas.first().unwrap().id;
-                resolver
-                    .get_client(replica_id)
-                    .into_future()
-                    .and_then(move |client| client.delete_document(shard.id, id))
-            })
+        self.get_shard_client_for_document(&index_name, &id)
+            .into_future()
+            .and_then(move |client| client.client.delete_document(client.shard.id, id))
     }
 
     pub fn refresh_index(&self, index_name: &str) -> impl Future<Item = (), Error = Error> {
         let resolver = self.gossip_state.clone();
-        self.get_cached_index(index_name)
+        let index_res = self.get_cached_index(index_name);
+        future::result(index_res)
             .and_then(move |mut index| {
                 let shards = index.take_shards().into_iter().map(move |shard| {
                     let replica_id = shard.replicas.first().unwrap().id;
@@ -241,11 +243,11 @@ impl NodeRouter {
         })
     }
 
-    fn get_shard_for_document(
+    pub fn get_shard_for_document(
         &self,
         index_name: &str,
         document_id: &DocumentId,
-    ) -> impl Future<Item = ShardState, Error = Error> {
+    ) -> Result<ShardState, Error>{
         let id = document_id.routing_id();
         self.get_cached_index(index_name).map(move |index| {
             index
@@ -260,44 +262,23 @@ impl NodeRouter {
         })
     }
 
-    fn get_shard_client_for_document(
+    pub fn get_shard_client_for_document(
         &self,
         index_name: &str,
         document_id: &DocumentId,
-    ) -> impl Future<Item = ShardClient, Error = Error> {
+    ) -> Result<ShardClient, Error> {
         let resolver = self.gossip_state.clone();
         self.get_shard_for_document(index_name, document_id)
             .and_then(move |shard| {
                 let replica_id = shard.replicas.first().unwrap().id;
-                resolver
-                    .get_client(replica_id)
-                    .map(|client| ShardClient { client, shard })
+                let client = resolver.get_client(replica_id)?;
+                Ok(ShardClient{ client, shard })
             })
     }
 
-    fn get_cached_index(&self, index_name: &str) -> impl Future<Item = IndexState, Error = Error> {
-        let cache = self.index_cache.read().unwrap();
-        let f: Box<Future<Item = IndexState, Error = Error> + Send> =
-            if cache.contains_key(index_name) {
-                Box::new(futures::future::ok(cache.get(index_name).cloned().unwrap()))
-            } else {
-                drop(cache);
-                Box::new(self.refresh_index_cache(index_name))
-            };
-        f
-    }
-
-    // TODO: Need to refresh this when routing is out of date
-    fn refresh_index_cache(
-        &self,
-        index_name: &str,
-    ) -> impl Future<Item = IndexState, Error = Error> {
-        let cache = self.index_cache.clone();
-        self.get_index(index_name.to_string()).map(move |index| {
-            let mut locked = cache.write().unwrap();
-            locked.insert(index.get_name().to_string(), index.clone());
-            index
-        })
+    fn get_cached_index(&self, index_name: &str) -> Result<IndexState, Error> {
+        self.cluster_state.get_index(index_name)
+            .ok_or_else(|| err_msg("Index not found"))
     }
 
     fn peer(&self, id: u64) -> Result<RpcClient, Error> {

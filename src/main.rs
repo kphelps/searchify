@@ -5,9 +5,12 @@ use log::error;
 #[macro_use]
 mod storage_engine;
 
+mod action;
+mod action_executor;
 mod cached_persistent_cell;
 mod cached_persistent_map;
 mod clock;
+mod cluster_state;
 mod config;
 mod document;
 mod event_emitter;

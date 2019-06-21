@@ -1,4 +1,6 @@
+use crate::action_executor::ActionExecutor;
 use crate::clock::Clock;
+use crate::cluster_state::ClusterState;
 use crate::config::Config;
 use crate::gossip::GossipServer;
 use crate::key_value_state_machine::{KeyValueStateMachine, MetaStateEvent};
@@ -58,6 +60,7 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
     let storage_engine = StorageEngine::new(&storage_root.join("cluster"))?;
     init_node(&config.master_ids, &storage_engine)?;
 
+    let cluster_state = ClusterState::new();
     let clock = Clock::new();
     let kv_raft_router = RaftRouter::new();
     let search_raft_router = RaftRouter::new();
@@ -68,7 +71,11 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
         &format!("{}:{}", config.advertised_host, config.port),
         clock.clone(),
     );
-    let node_router = NodeRouter::start(&config, gossip_server.state())?;
+    let node_router = NodeRouter::start(
+        &config,
+        gossip_server.state(),
+        cluster_state.clone(),
+    )?;
     let group_states = get_raft_groups(&storage_engine)?;
     let index_coordinator = IndexCoordinator::start(
         &config,
@@ -88,7 +95,12 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
         config.node_id,
         config.port,
     )?;
-    let http_server = start_web(config, node_router.clone())?;
+    let action_executor = ActionExecutor::new(node_router.clone());
+    let http_server = start_web(
+        config,
+        action_executor.clone(),
+        node_router.clone(),
+    )?;
     start_master_process(
         &config,
         &group_states,
