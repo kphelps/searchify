@@ -14,7 +14,7 @@ use crate::raft_storage::{
 };
 use crate::search::IndexCoordinator;
 use crate::storage_engine::StorageEngine;
-use crate::web::{start_web, HttpServer};
+use crate::web::start_web;
 use failure::Error;
 use futures::{future, prelude::*, sync::oneshot};
 use grpcio::Server;
@@ -25,7 +25,6 @@ use tokio_signal::unix::{Signal, SIGINT, SIGTERM};
 
 struct Inner {
     _server: Server,
-    _http_server: HttpServer,
     _index_coordinator: IndexCoordinator,
 }
 
@@ -96,7 +95,7 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
         config.port,
     )?;
     let action_executor = ActionExecutor::new(node_router.clone());
-    let http_server = start_web(
+    start_web(
         config,
         action_executor.clone(),
         node_router.clone(),
@@ -113,7 +112,6 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
     )?;
     Ok(Inner {
         _server: server,
-        _http_server: http_server,
         _index_coordinator: index_coordinator,
     })
 }

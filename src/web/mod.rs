@@ -1,20 +1,15 @@
 use actix_web::*;
-use crate::action::Action;
+use crate::actions::{self, Action};
 use crate::action_executor::ActionExecutor;
-use crate::action::DeleteIndexAction;
 use crate::config::Config;
 use crate::mappings::Mappings;
 use crate::node_router::NodeRouterHandle;
 use crate::query_api::SearchQuery;
 use failure::Error;
-use futures::{prelude::*, sync::oneshot};
-use std::time::Instant;
+use futures::prelude::*;
+use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tower_web::*;
-
-pub struct HttpServer {
-    _handle: oneshot::Sender<()>,
-}
 
 #[derive(Clone)]
 struct HelloWorld {
@@ -33,13 +28,13 @@ struct IndexSettings {
     number_of_replicas: u64,
 }
 
-#[derive(Extract)]
+#[derive(Deserialize)]
 struct CreateIndexRequest {
     settings: IndexSettings,
     mappings: Mappings,
 }
 
-#[derive(Extract)]
+#[derive(Deserialize)]
 struct SearchRequest {
     query: SearchQuery,
 }
@@ -48,17 +43,8 @@ struct SearchRequest {
 struct SearchResponse {
     took: u64,
     timed_out: bool,
-    shards: ShardResultResponse,
+    // shards: ShardResultResponse,
     hits: Vec<SearchHitResponse>,
-}
-
-#[derive(Response, Serialize)]
-struct ShardResultResponse {
-    total: u64,
-    successful: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    skipped: Option<u64>,
-    failed: u64,
 }
 
 #[derive(Response, Serialize)]
@@ -74,56 +60,8 @@ struct SearchHitResponse {
 }
 
 #[derive(Response)]
-struct IndexDocumentResponse {}
-
-
-#[derive(Response, Serialize)]
-#[web(status = "200")]
-struct GetDocumentResponse {
-    #[serde(rename = "_index")]
-    index_name: String,
-    #[serde(rename = "_id")]
-    id: String,
-    #[serde(rename = "_version")]
-    version: u64,
-    #[serde(rename = "found")]
-    found: bool,
-    #[serde(rename = "_source")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    source: Option<serde_json::Value>,
-}
-
-#[derive(Response, Serialize)]
-struct DeleteDocumentResponse {
-    #[serde(rename = "_shards")]
-    shards: ShardResultResponse,
-    #[serde(rename = "_index")]
-    index_name: String,
-    #[serde(rename = "_id")]
-    id: String,
-    #[serde(rename = "_version")]
-    version: String,
-    result: String,
-}
-
-#[derive(Response)]
-struct RefreshResponse {}
-
-#[derive(Response)]
 #[web(status = "204")]
 struct DeletedResponse {}
-
-#[derive(Response, Serialize)]
-struct Index {
-    index_name: String,
-    shard_count: u64,
-    replica_count: u64,
-}
-
-#[derive(Response)]
-struct ListIndicesResponse {
-    indices: Vec<Index>,
-}
 
 #[derive(Response)]
 struct InternalError {
@@ -185,20 +123,6 @@ struct InternalError {
 //                 })
 //         }
 
-//         #[post("/:name/:id")]
-//         #[content_type("json")]
-//         fn index_document(
-//             &self,
-//             name: String,
-//             id: String,
-//             body: Vec<u8>,
-//         ) -> impl Future<Item = IndexDocumentResponse, Error = Error> + Send {
-//             let v = serde_json::from_slice(&body).unwrap();
-//             self.node_router
-//                 .index_document(name, id.into(), v)
-//                 .map(|_| IndexDocumentResponse {})
-//         }
-
 //         #[post("/:name/_refresh")]
 //         #[content_type("json")]
 //         fn refresh_index(&self, name: String) -> impl Future<Item = RefreshResponse, Error = Error> + Send {
@@ -238,105 +162,43 @@ struct InternalError {
 //                     }
 //                 })
 //         }
-
-//         #[get("/:name/:id")]
-//         #[content_type("json")]
-//         fn get_document(
-//             &self,
-//             name: String,
-//             id: String,
-//         ) -> impl Future<Item = GetDocumentResponse, Error = Error> + Send {
-//             self.node_router.get_document(name.clone(), id.clone().into())
-//                 .and_then(move |response| {
-//                     let source = if response.found {
-//                         let j = response.get_source();
-//                         let value = serde_json::from_slice(j)?;
-//                         Some(value)
-//                     } else {
-//                         None
-//                     };
-//                     Ok(GetDocumentResponse{
-//                         index_name: name,
-//                         id: id,
-//                         found: response.found,
-//                         version: 0,
-//                         source: source,
-//                     })
-//                 })
-//         }
-
-//         #[delete("/:name/:id")]
-//         #[content_type("json")]
-//         fn delete_document(
-//             &self,
-//             name: String,
-//             id: String,
-//         ) -> impl Future<Item = DeleteDocumentResponse, Error = Error> + Send {
-//             self.node_router.delete_document(name.clone(), id.clone().into())
-//                 .and_then(move |response| {
-//                     Ok(DeleteDocumentResponse{
-//                         shards: ShardResultResponse {
-//                             total: 1,
-//                             successful: if response.success { 1 } else { 0 },
-//                             failed: if response.success { 0 } else { 1 },
-//                             skipped: None,
-//                         },
-//                         index_name: name,
-//                         id: id,
-//                         version: "0".to_string(),
-//                         result: "deleted".to_string(),
-//                     })
-//                 })
-//         }
-//     }
 // }
 
-// fn action_route<A, I, O, P, H>(action: A) -> H
-// where
-//     A: Action<I, Response = O, Path = P>,
-//     H: Fn((State<HelloWorld>, Path<P>, &HttpRequest)) -> Box<Future<Item=HttpResponse, Error=Error> + 'static> + 'static
-// {
-//     let func: Fn((State<HelloWorld>, Path<P>, &HttpRequest)) -> Box<Future<Item=HttpResponse, Error=Error> + 'static> + 'static =
-//         move |(state, path, request): (State<HelloWorld>, Path<P>, &HttpRequest)| -> Box<Future<Item=HttpResponse, Error=Error> + 'static> {
-//             let action_request = action.parse_http(path.into_inner(), request);
-//             let f = state.action_executor.execute(action, action_request)
-//                 .map(|action_response| action.to_http_response(action_response));
-//             Box::new(f)
-//         };
-//     func
-// }
+fn register_action<A, P>(cfg: &mut web::ServiceConfig, action: A)
+where A: Action<Path=P> + Clone + 'static,
+      P: FromRequest + serde::de::DeserializeOwned + 'static
+{
+    let path_string = action.path();
+    let method = action.method();
+    let func = move |request: HttpRequest| -> Box<Future<Item=HttpResponse, Error=Error> + 'static> {
+        let path = web::Path::<P>::extract(&request).unwrap();
+        let state = web::Data::<HelloWorld>::extract(&request).unwrap();
+        let f = state.action_executor.execute_http(action.clone(), path, &request);
+        Box::new(f)
+    };
+    cfg.route(&path_string, web::method(method).to(func));
+}
+
+fn register_actions(cfg: &mut web::ServiceConfig) {
+    register_action(cfg, actions::DeleteIndexAction);
+    register_action(cfg, actions::DeleteDocumentAction);
+    register_action(cfg, actions::GetDocumentAction);
+    register_action(cfg, actions::IndexDocumentAction);
+    register_action(cfg, actions::RefreshAction);
+}
 
 pub fn start_web(
     config: &Config,
     action_executor: ActionExecutor,
     node_router: NodeRouterHandle,
-) -> Result<HttpServer, Error> {
-    let address = format!("{}:{}", config.web.host, config.web.port).parse()?;
-    let listener = TcpListener::bind(&address)?;
+) -> Result<(), Error> {
+    let address: SocketAddr = format!("{}:{}", config.web.host, config.web.port).parse()?;
     let state = HelloWorld { action_executor, node_router };
-    let (sender, receiver) = oneshot::channel();
 
-    let action = DeleteIndexAction;
-    let func = |request: &HttpRequest| -> Box<Future<Item=HttpResponse, Error=Error> + 'static> {
-        let path = Path<<DeleteIndexAction as Action>::Path>::extract(request);
-        let state = State<HelloWorld>::extract(request);
-        let action_request = action.parse_http(path.into_inner(), request);
-        let f = state.action_executor.execute(action, action_request)
-            .map(|action_response| action.to_http_response(action_response));
-        Box::new(f)
-    };
+    let build_app = move || App::new()
+        .data(state.clone())
+        .configure(register_actions);
 
-    let build_app = || App::with_state(state.clone())
-        .resource("/{name}", |r| r.delete().a(func))
-        .finish();
-
-    std::thread::spawn(|| server::new(build_app).bind(address).unwrap().run());
-
-    // let f = ServiceBuilder::new()
-    //     .middleware(tower_web::middleware::log::LogMiddleware::new("searchify"))
-    //     .resource(HelloWorld { action_executor, node_router })
-    //     .serve(listener.incoming());
-
-    // tokio::spawn(f.select(receiver.map_err(|_| ())).then(|_| Ok(())));
-    Ok(HttpServer { _handle: sender })
+    std::thread::spawn(move || actix_web::HttpServer::new(build_app).bind(address).unwrap().run());
+    Ok(())
 }

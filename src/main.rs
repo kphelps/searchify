@@ -5,7 +5,7 @@ use log::error;
 #[macro_use]
 mod storage_engine;
 
-mod action;
+mod actions;
 mod action_executor;
 mod cached_persistent_cell;
 mod cached_persistent_map;
