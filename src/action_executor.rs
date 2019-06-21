@@ -17,7 +17,7 @@ impl ActionExecutor {
     }
 
     pub fn execute<A, Req, Resp>(&self, action: A, request: Req) -> impl Future<Item=Resp, Error=Error>
-    where A: Action<Req, Response=Resp>
+    where A: Action<Request=Req, Response=Resp>
     {
         let context = ActionContext::new(self.node_router.clone());
         action.execute(request, context)

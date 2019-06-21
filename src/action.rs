@@ -1,3 +1,4 @@
+use actix_web::{HttpRequest, HttpResponse};
 use failure::Error;
 use futures::prelude::*;
 use crate::node_router::NodeRouterHandle;
@@ -16,10 +17,25 @@ impl ActionContext {
     }
 }
 
-pub trait Action<Request> {
+pub trait Action {
+    type Path;
+    type Request;
     type Response;
 
-    fn execute(&self, request: Request, ctx: ActionContext) -> Box<Future<Item=Self::Response, Error=Error>>;
+    fn handle_http<F>(&self, (request): (&HttpRequest)) -> F
+        where F: Future<Item=HttpResponse, Error=Error> + 'static
+    {
+        // let action_request = self.parse_http(path.into_inner(), request);
+        // let f = state.action_executor.execute(action, action_request)
+        //     .map(|action_response| action.to_http_response(action_response));
+        // Box::new(f)
+        
+    }
+    fn method(&self) -> actix_web::http::Method;
+    fn path(&self) -> String;
+    fn parse_http(&self, path: Self::Path, request: &HttpRequest) -> Self::Request;
+    fn to_http_response(&self, response: Self::Response) -> HttpResponse;
+    fn execute(&self, request: Self::Request, ctx: ActionContext) -> Box<Future<Item=Self::Response, Error=Error>>;
 }
 
 struct BulkRequest {
@@ -62,8 +78,29 @@ struct DeleteOperation {
 
 struct BulkAction;
 
-impl Action<BulkRequest> for BulkAction {
+impl Action for BulkAction {
+    type Path = String;
+    type Request = BulkRequest;
     type Response = BulkResponse;
+
+    fn method(&self) -> actix_web::http::Method {
+        actix_web::http::Method::POST
+    }
+
+    fn path(&self) -> String {
+        "/{name}/_bulk".to_string()
+    }
+
+    fn parse_http(&self, index: String, request: &HttpRequest) -> BulkRequest {
+        BulkRequest {
+            index,
+            operations: Vec::new()
+        }
+    }
+
+    fn to_http_response(&self, response: BulkResponse) -> HttpResponse {
+        HttpResponse::NoContent().finish()
+    }
 
     fn execute(&self, request: BulkRequest, ctx: ActionContext) -> Box<Future<Item=Self::Response, Error=Error>> {
         let index = request.index;
@@ -82,8 +119,26 @@ struct DeleteIndexRequest {
     name: String,
 }
 
-impl Action<DeleteIndexRequest> for DeleteIndexAction {
+impl Action for DeleteIndexAction {
+    type Path = String;
+    type Request = DeleteIndexRequest;
     type Response = ();
+
+    fn method(&self) -> actix_web::http::Method {
+        actix_web::http::Method::DELETE
+    }
+
+    fn path(&self) -> String {
+        "/{name}".to_string()
+    }
+
+    fn parse_http(&self, index: String, request: &HttpRequest) -> DeleteIndexRequest {
+        DeleteIndexRequest { name: index }
+    }
+
+    fn to_http_response(&self, response: ()) -> HttpResponse {
+        HttpResponse::NoContent().finish()
+    }
 
     fn execute(&self, request: DeleteIndexRequest, ctx: ActionContext) -> Box<Future<Item=Self::Response, Error=Error>> {
         Box::new(ctx.node_router.delete_index(request.name))

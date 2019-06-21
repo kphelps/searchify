@@ -1,4 +1,5 @@
 use actix_web::*;
+use crate::action::Action;
 use crate::action_executor::ActionExecutor;
 use crate::action::DeleteIndexAction;
 use crate::config::Config;
@@ -290,9 +291,20 @@ struct InternalError {
 //     }
 // }
 
-fn action_route<A, R>(action: A) {
-    
-}
+// fn action_route<A, I, O, P, H>(action: A) -> H
+// where
+//     A: Action<I, Response = O, Path = P>,
+//     H: Fn((State<HelloWorld>, Path<P>, &HttpRequest)) -> Box<Future<Item=HttpResponse, Error=Error> + 'static> + 'static
+// {
+//     let func: Fn((State<HelloWorld>, Path<P>, &HttpRequest)) -> Box<Future<Item=HttpResponse, Error=Error> + 'static> + 'static =
+//         move |(state, path, request): (State<HelloWorld>, Path<P>, &HttpRequest)| -> Box<Future<Item=HttpResponse, Error=Error> + 'static> {
+//             let action_request = action.parse_http(path.into_inner(), request);
+//             let f = state.action_executor.execute(action, action_request)
+//                 .map(|action_response| action.to_http_response(action_response));
+//             Box::new(f)
+//         };
+//     func
+// }
 
 pub fn start_web(
     config: &Config,
@@ -303,11 +315,22 @@ pub fn start_web(
     let listener = TcpListener::bind(&address)?;
     let state = HelloWorld { action_executor, node_router };
     let (sender, receiver) = oneshot::channel();
+
+    let action = DeleteIndexAction;
+    let func = |request: &HttpRequest| -> Box<Future<Item=HttpResponse, Error=Error> + 'static> {
+        let path = Path<<DeleteIndexAction as Action>::Path>::extract(request);
+        let state = State<HelloWorld>::extract(request);
+        let action_request = action.parse_http(path.into_inner(), request);
+        let f = state.action_executor.execute(action, action_request)
+            .map(|action_response| action.to_http_response(action_response));
+        Box::new(f)
+    };
+
     let build_app = || App::with_state(state.clone())
-        .resource("/{name}", |r| r.method(http::Method::DELETE).with(action_route(DeleteIndexAction)))
+        .resource("/{name}", |r| r.delete().a(func))
         .finish();
 
-    server::new(build_app).bind(address).run()
+    std::thread::spawn(|| server::new(build_app).bind(address).unwrap().run());
 
     // let f = ServiceBuilder::new()
     //     .middleware(tower_web::middleware::log::LogMiddleware::new("searchify"))
