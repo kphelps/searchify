@@ -1,8 +1,8 @@
 use super::{Action, ActionContext};
-use serde::*;
 use actix_web::*;
 use failure::Error;
 use futures::prelude::*;
+use serde::*;
 use serde_json::Value as JsonValue;
 
 #[derive(Clone, Copy)]
@@ -15,8 +15,7 @@ pub struct IndexDocumentRequest {
 }
 
 #[derive(Serialize)]
-pub struct IndexDocumentResponse {
-}
+pub struct IndexDocumentResponse {}
 
 impl Action for IndexDocumentAction {
     type Path = (String, String);
@@ -32,9 +31,7 @@ impl Action for IndexDocumentAction {
         "/{name}/{id}".to_string()
     }
 
-    fn parse_http(&self, (name, id): (String, String), request: &HttpRequest)
-        -> Self::ParseFuture
-    {
+    fn parse_http(&self, (name, id): (String, String), request: &HttpRequest) -> Self::ParseFuture {
         let f = web::Json::<JsonValue>::extract(&request)
             .map_err(|_| failure::err_msg("Failed to parse body"))
             .map(|j| j.into_inner())
@@ -46,10 +43,13 @@ impl Action for IndexDocumentAction {
         HttpResponse::Ok().json(response)
     }
 
-    fn execute(&self, request: IndexDocumentRequest, ctx: ActionContext)
-        -> Box<Future<Item=Self::Response, Error=Error>>
-    {
-        let f = ctx.node_router
+    fn execute(
+        &self,
+        request: IndexDocumentRequest,
+        ctx: ActionContext,
+    ) -> Box<Future<Item = Self::Response, Error = Error>> {
+        let f = ctx
+            .node_router
             .index_document(request.name, request.id.into(), request.document)
             .map(|_| IndexDocumentResponse {});
         Box::new(f)

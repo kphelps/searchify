@@ -24,9 +24,7 @@ impl Action for GetIndexAction {
         "/{name}".to_string()
     }
 
-    fn parse_http(&self, name: String, _request: &HttpRequest)
-        -> Self::ParseFuture
-    {
+    fn parse_http(&self, name: String, _request: &HttpRequest) -> Self::ParseFuture {
         Ok(GetIndexRequest { name })
     }
 
@@ -34,10 +32,12 @@ impl Action for GetIndexAction {
         HttpResponse::Ok().json(response)
     }
 
-    fn execute(&self, request: GetIndexRequest, ctx: ActionContext)
-        -> Box<Future<Item=Self::Response, Error=Error>>
-    {
-        let f = ctx.node_router.get_index(request.name).map(|state| Index{
+    fn execute(
+        &self,
+        request: GetIndexRequest,
+        ctx: ActionContext,
+    ) -> Box<Future<Item = Self::Response, Error = Error>> {
+        let f = ctx.node_router.get_index(request.name).map(|state| Index {
             index_name: state.name,
             shard_count: state.shard_count,
             replica_count: state.replica_count,

@@ -1,8 +1,8 @@
 use super::{Action, ActionContext, ShardResultResponse};
-use serde::*;
 use actix_web::{HttpRequest, HttpResponse};
 use failure::Error;
 use futures::prelude::*;
+use serde::*;
 
 #[derive(Clone, Copy)]
 pub struct DeleteDocumentAction;
@@ -39,9 +39,11 @@ impl Action for DeleteDocumentAction {
         "/{name}/{id}".to_string()
     }
 
-    fn parse_http(&self, (name, id): (String, String), _request: &HttpRequest)
-        -> Result<DeleteDocumentRequest, Error>
-    {
+    fn parse_http(
+        &self,
+        (name, id): (String, String),
+        _request: &HttpRequest,
+    ) -> Result<DeleteDocumentRequest, Error> {
         Ok(DeleteDocumentRequest { name, id })
     }
 
@@ -49,10 +51,16 @@ impl Action for DeleteDocumentAction {
         HttpResponse::Ok().json(response)
     }
 
-    fn execute(&self, request: DeleteDocumentRequest, ctx: ActionContext) -> Box<Future<Item=Self::Response, Error=Error>> {
-        let f = ctx.node_router.delete_document(request.name.clone(), request.id.clone().into())
+    fn execute(
+        &self,
+        request: DeleteDocumentRequest,
+        ctx: ActionContext,
+    ) -> Box<Future<Item = Self::Response, Error = Error>> {
+        let f = ctx
+            .node_router
+            .delete_document(request.name.clone(), request.id.clone().into())
             .and_then(move |response| {
-                Ok(DeleteDocumentResponse{
+                Ok(DeleteDocumentResponse {
                     shards: ShardResultResponse {
                         total: 1,
                         successful: if response.success { 1 } else { 0 },

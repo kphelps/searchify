@@ -1,9 +1,9 @@
-use crate::mappings::Mappings;
 use super::{Action, ActionContext};
-use serde::*;
+use crate::mappings::Mappings;
 use actix_web::*;
 use failure::Error;
 use futures::prelude::*;
+use serde::*;
 
 #[derive(Clone, Copy)]
 pub struct CreateIndexAction;
@@ -45,9 +45,7 @@ impl Action for CreateIndexAction {
         "/{name}".to_string()
     }
 
-    fn parse_http(&self, name: String, request: &HttpRequest)
-        -> Self::ParseFuture
-    {
+    fn parse_http(&self, name: String, request: &HttpRequest) -> Self::ParseFuture {
         let f = web::Json::<CreateIndexBody>::extract(&request)
             .map_err(|_| failure::err_msg("Failed to parse body"))
             .map(|j| j.into_inner())
@@ -63,16 +61,21 @@ impl Action for CreateIndexAction {
         HttpResponse::Ok().json(response)
     }
 
-    fn execute(&self, request: CreateIndexRequest, ctx: ActionContext)
-        -> Box<Future<Item=Self::Response, Error=Error>>
-    {
+    fn execute(
+        &self,
+        request: CreateIndexRequest,
+        ctx: ActionContext,
+    ) -> Box<Future<Item = Self::Response, Error = Error>> {
         let index_name = request.name.clone();
-        let action = ctx.node_router.create_index(
-            request.name.clone(),
-            request.settings.number_of_shards,
-            request.settings.number_of_replicas,
-            request.mappings,
-        ).from_err();
+        let action = ctx
+            .node_router
+            .create_index(
+                request.name.clone(),
+                request.settings.number_of_shards,
+                request.settings.number_of_replicas,
+                request.mappings,
+            )
+            .from_err();
         let f = action.map(move |_| CreateIndexResponse { index_name });
         Box::new(f)
     }

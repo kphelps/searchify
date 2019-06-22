@@ -18,8 +18,8 @@ pub use self::common::*;
 
 pub use self::action_context::ActionContext;
 pub use self::create_index::CreateIndexAction;
-pub use self::delete_index::DeleteIndexAction;
 pub use self::delete_document::DeleteDocumentAction;
+pub use self::delete_index::DeleteIndexAction;
 pub use self::get_document::GetDocumentAction;
 pub use self::get_index::GetIndexAction;
 pub use self::index_document::IndexDocumentAction;
@@ -37,5 +37,9 @@ pub trait Action: Copy {
     fn path(&self) -> String;
     fn parse_http(&self, path: Self::Path, request: &HttpRequest) -> Self::ParseFuture;
     fn to_http_response(&self, response: Self::Response) -> HttpResponse;
-    fn execute(&self, request: Self::Request, ctx: ActionContext) -> Box<Future<Item=Self::Response, Error=Error>>;
+    fn execute(
+        &self,
+        request: Self::Request,
+        ctx: ActionContext,
+    ) -> Box<Future<Item = Self::Response, Error = Error>>;
 }

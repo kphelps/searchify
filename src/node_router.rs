@@ -25,11 +25,7 @@ pub struct NodeRouterHandle {
 }
 
 impl NodeRouter {
-    fn new(
-        config: &Config,
-        gossip_state: GossipState,
-        cluster_state: ClusterState,
-    ) -> Self {
+    fn new(config: &Config, gossip_state: GossipState, cluster_state: ClusterState) -> Self {
         let mut clients = HashMap::new();
         let self_address = format!("127.0.0.1:{}", config.port);
         clients.insert(
@@ -247,7 +243,7 @@ impl NodeRouter {
         &self,
         index_name: &str,
         document_id: &DocumentId,
-    ) -> Result<ShardState, Error>{
+    ) -> Result<ShardState, Error> {
         let id = document_id.routing_id();
         self.get_cached_index(index_name).map(move |index| {
             index
@@ -272,12 +268,13 @@ impl NodeRouter {
             .and_then(move |shard| {
                 let replica_id = shard.replicas.first().unwrap().id;
                 let client = resolver.get_client(replica_id)?;
-                Ok(ShardClient{ client, shard })
+                Ok(ShardClient { client, shard })
             })
     }
 
     fn get_cached_index(&self, index_name: &str) -> Result<IndexState, Error> {
-        self.cluster_state.get_index(index_name)
+        self.cluster_state
+            .get_index(index_name)
             .ok_or_else(|| err_msg("Index not found"))
     }
 

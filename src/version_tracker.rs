@@ -22,11 +22,13 @@ impl VersionTracker {
     }
 
     pub fn insert(&mut self, id: &DocumentId, version: DocumentVersion) {
-        self.new_versions.insert(id.clone(), TrackedVersion::Live(version));
+        self.new_versions
+            .insert(id.clone(), TrackedVersion::Live(version));
     }
 
     pub fn delete(&mut self, id: &DocumentId) {
-        self.new_versions.insert(id.clone(), TrackedVersion::Deleted);
+        self.new_versions
+            .insert(id.clone(), TrackedVersion::Deleted);
     }
 
     pub fn pre_commmit(&mut self) {

@@ -47,11 +47,8 @@ impl SearchStateMachine {
 
     fn add_document(&mut self, mut request: AddDocumentOperation) -> Result<(), Error> {
         let document = serde_json::from_str(request.get_payload())?;
-        self.storage.index(
-            &request.take_id().into(),
-            &document,
-            ExpectedVersion::Any,
-        )
+        self.storage
+            .index(&request.take_id().into(), &document, ExpectedVersion::Any)
     }
 
     fn delete_document(&mut self, mut request: DeleteDocumentOperation) -> Result<(), Error> {

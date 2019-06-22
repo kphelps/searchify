@@ -1,8 +1,8 @@
 use super::{Action, ActionContext, Index};
-use serde::*;
 use actix_web::{HttpRequest, HttpResponse};
 use failure::Error;
 use futures::prelude::*;
+use serde::*;
 
 #[derive(Clone, Copy)]
 pub struct ListIndicesAction;
@@ -26,9 +26,7 @@ impl Action for ListIndicesAction {
         "/_cat/indices".to_string()
     }
 
-    fn parse_http(&self, _: (), _request: &HttpRequest)
-        -> Result<(), Error>
-    {
+    fn parse_http(&self, _: (), _request: &HttpRequest) -> Result<(), Error> {
         Ok(())
     }
 
@@ -36,14 +34,18 @@ impl Action for ListIndicesAction {
         HttpResponse::Ok().json(response)
     }
 
-    fn execute(&self, _: (), ctx: ActionContext) -> Box<Future<Item=Self::Response, Error=Error>> {
+    fn execute(
+        &self,
+        _: (),
+        ctx: ActionContext,
+    ) -> Box<Future<Item = Self::Response, Error = Error>> {
         let f = ctx.node_router.list_indices().map(|response| {
             let indices = response.indices.into_iter().map(|index| Index {
                 index_name: index.name,
                 shard_count: index.shard_count,
                 replica_count: index.replica_count,
             });
-            ListIndicesResponse{
+            ListIndicesResponse {
                 indices: indices.collect(),
             }
         });

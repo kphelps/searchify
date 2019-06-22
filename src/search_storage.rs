@@ -60,8 +60,10 @@ impl SearchStorage {
         match expected_version {
             ExpectedVersion::Any => (),
             ExpectedVersion::Version(_) => (),
-            ExpectedVersion::Deleted => if document_exists {
-                return Err(SearchStorageError::DocumentAlreadyExists.into());
+            ExpectedVersion::Deleted => {
+                if document_exists {
+                    return Err(SearchStorageError::DocumentAlreadyExists.into());
+                }
             }
         }
         self.versions.insert(id, 0.into());
@@ -173,11 +175,19 @@ impl SearchStorage {
         }
     }
 
-    fn resolve_document_id(&self, searcher: &Searcher, id: DocumentId) -> Result<Option<DocAddress>, Error> {
+    fn resolve_document_id(
+        &self,
+        searcher: &Searcher,
+        id: DocumentId,
+    ) -> Result<Option<DocAddress>, Error> {
         let query = TermQuery::new("_id", QueryValue::String(id.into()));
         let collector = TopDocs::with_limit(1);
         let result = searcher.search(&query.to_query(&self.schema, &searcher)?, &collector)?;
-        Ok(if result.is_empty() { None } else { Some(result[0].1) })
+        Ok(if result.is_empty() {
+            None
+        } else {
+            Some(result[0].1)
+        })
     }
 }
 
@@ -218,7 +228,9 @@ mod test {
         let doc_id = "hello world".into();
         let doc_str = r#"{"hello": "world"}"#;
         let document = serde_json::from_str(doc_str).unwrap();
-        storage.index(&doc_id, &document, ExpectedVersion::Any).unwrap();
+        storage
+            .index(&doc_id, &document, ExpectedVersion::Any)
+            .unwrap();
         let result = storage.get(doc_id).unwrap();
         assert!(!result.get_found());
     }
@@ -230,7 +242,9 @@ mod test {
         let doc_id = "hello world".into();
         let doc_str = r#"{"hello": "world"}"#;
         let document = serde_json::from_str(doc_str).unwrap();
-        storage.index(&doc_id, &document, ExpectedVersion::Any).unwrap();
+        storage
+            .index(&doc_id, &document, ExpectedVersion::Any)
+            .unwrap();
         storage.refresh().unwrap();
         let result = storage.get(doc_id).unwrap();
         assert!(result.get_found());
@@ -247,7 +261,9 @@ mod test {
         let doc_id = "hello world".into();
         let doc_str = r#"{"hello": "world"}"#;
         let document = serde_json::from_str(doc_str).unwrap();
-        storage.index(&doc_id, &document, ExpectedVersion::Any).unwrap();
+        storage
+            .index(&doc_id, &document, ExpectedVersion::Any)
+            .unwrap();
         storage.refresh().unwrap();
 
         let q = SearchQuery::TermQuery(TermQuery::new(
@@ -283,8 +299,12 @@ mod test {
         let document = serde_json::from_str(doc_str).unwrap();
         let doc_str2 = r#"{"hello": "world2"}"#;
         let document2 = serde_json::from_str(doc_str2).unwrap();
-        storage.index(&doc_id, &document, ExpectedVersion::Any).unwrap();
-        storage.index(&doc_id, &document2, ExpectedVersion::Any).unwrap();
+        storage
+            .index(&doc_id, &document, ExpectedVersion::Any)
+            .unwrap();
+        storage
+            .index(&doc_id, &document2, ExpectedVersion::Any)
+            .unwrap();
         storage.refresh().unwrap();
         assert_eq!(search_term(&storage, "hello", "world").total, 0);
         assert_eq!(search_term(&storage, "hello", "world2").total, 1);
@@ -300,9 +320,13 @@ mod test {
         let document = serde_json::from_str(doc_str).unwrap();
         let doc_str2 = r#"{"hello": "world2"}"#;
         let document2 = serde_json::from_str(doc_str2).unwrap();
-        storage.index(&doc_id, &document, ExpectedVersion::Any).unwrap();
+        storage
+            .index(&doc_id, &document, ExpectedVersion::Any)
+            .unwrap();
         storage.refresh().unwrap();
-        storage.index(&doc_id, &document2, ExpectedVersion::Any).unwrap();
+        storage
+            .index(&doc_id, &document2, ExpectedVersion::Any)
+            .unwrap();
         storage.refresh().unwrap();
         assert_eq!(search_term(&storage, "hello", "world").total, 0);
         assert_eq!(search_term(&storage, "hello", "world2").total, 1);
@@ -316,7 +340,9 @@ mod test {
         let doc_id = "hello world".into();
         let doc_str = r#"{"hello": "world"}"#;
         let document = serde_json::from_str(doc_str).unwrap();
-        storage.index(&doc_id, &document, ExpectedVersion::Deleted).unwrap();
+        storage
+            .index(&doc_id, &document, ExpectedVersion::Deleted)
+            .unwrap();
         storage.refresh().unwrap();
         let result = storage.index(&doc_id, &document, ExpectedVersion::Deleted);
         assert!(result.is_err());
@@ -329,7 +355,9 @@ mod test {
         let doc_id = "hello world".into();
         let doc_str = r#"{"hello": "world"}"#;
         let document = serde_json::from_str(doc_str).unwrap();
-        storage.index(&doc_id, &document, ExpectedVersion::Deleted).unwrap();
+        storage
+            .index(&doc_id, &document, ExpectedVersion::Deleted)
+            .unwrap();
         let result = storage.index(&doc_id, &document, ExpectedVersion::Deleted);
         assert!(result.is_err());
     }
@@ -341,7 +369,9 @@ mod test {
         let doc_id = "hello world".into();
         let doc_str = r#"{"hello": "world"}"#;
         let document = serde_json::from_str(doc_str).unwrap();
-        storage.index(&doc_id, &document, ExpectedVersion::Deleted).unwrap();
+        storage
+            .index(&doc_id, &document, ExpectedVersion::Deleted)
+            .unwrap();
         storage.delete(doc_id.clone()).unwrap();
         let result = storage.index(&doc_id, &document, ExpectedVersion::Deleted);
         assert!(result.is_ok());
@@ -354,7 +384,9 @@ mod test {
         let doc_id = "hello world".into();
         let doc_str = r#"{"hello": "world"}"#;
         let document = serde_json::from_str(doc_str).unwrap();
-        storage.index(&doc_id, &document, ExpectedVersion::Deleted).unwrap();
+        storage
+            .index(&doc_id, &document, ExpectedVersion::Deleted)
+            .unwrap();
         storage.delete(doc_id.clone()).unwrap();
         storage.refresh().unwrap();
         let result = storage.index(&doc_id, &document, ExpectedVersion::Deleted);
@@ -368,7 +400,9 @@ mod test {
         let doc_id = "hello world".into();
         let doc_str = r#"{"hello": "world"}"#;
         let document = serde_json::from_str(doc_str).unwrap();
-        storage.index(&doc_id, &document, ExpectedVersion::Deleted).unwrap();
+        storage
+            .index(&doc_id, &document, ExpectedVersion::Deleted)
+            .unwrap();
         storage.refresh().unwrap();
         storage.delete(doc_id.clone()).unwrap();
         let result = storage.index(&doc_id, &document, ExpectedVersion::Deleted);

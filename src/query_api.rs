@@ -34,8 +34,7 @@ pub enum SearchQuery {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize, Serialize)]
-pub struct MatchAllQuery {
-}
+pub struct MatchAllQuery {}
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct BoolQuery {

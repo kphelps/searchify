@@ -24,7 +24,11 @@ impl Action for DeleteIndexAction {
         "/{name}".to_string()
     }
 
-    fn parse_http(&self, index: String, _request: &HttpRequest) -> Result<DeleteIndexRequest, Error> {
+    fn parse_http(
+        &self,
+        index: String,
+        _request: &HttpRequest,
+    ) -> Result<DeleteIndexRequest, Error> {
         Ok(DeleteIndexRequest { name: index })
     }
 
@@ -32,7 +36,11 @@ impl Action for DeleteIndexAction {
         HttpResponse::NoContent().finish()
     }
 
-    fn execute(&self, request: DeleteIndexRequest, ctx: ActionContext) -> Box<Future<Item=Self::Response, Error=Error>> {
+    fn execute(
+        &self,
+        request: DeleteIndexRequest,
+        ctx: ActionContext,
+    ) -> Box<Future<Item = Self::Response, Error = Error>> {
         Box::new(ctx.node_router.delete_index(request.name))
     }
 }

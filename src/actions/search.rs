@@ -1,10 +1,10 @@
+use super::{Action, ActionContext, ShardResultResponse};
 use crate::proto::MergedSearchResponse;
 use crate::query_api::SearchQuery;
-use super::{Action, ActionContext, ShardResultResponse};
-use serde::*;
 use actix_web::*;
 use failure::Error;
 use futures::prelude::*;
+use serde::*;
 use std::time::Instant;
 
 #[derive(Clone, Copy)]
@@ -54,9 +54,7 @@ impl Action for SearchAction {
         "/{name}".to_string()
     }
 
-    fn parse_http(&self, name: String, request: &HttpRequest)
-        -> Self::ParseFuture
-    {
+    fn parse_http(&self, name: String, request: &HttpRequest) -> Self::ParseFuture {
         let f = web::Json::<SearchBody>::extract(&request)
             .map_err(|_| failure::err_msg("Failed to parse body"))
             .map(|j| j.into_inner())
@@ -68,12 +66,16 @@ impl Action for SearchAction {
         HttpResponse::Ok().json(response)
     }
 
-    fn execute(&self, request: SearchRequest, ctx: ActionContext)
-        -> Box<Future<Item=Self::Response, Error=Error>>
-    {
+    fn execute(
+        &self,
+        request: SearchRequest,
+        ctx: ActionContext,
+    ) -> Box<Future<Item = Self::Response, Error = Error>> {
         let start = Instant::now();
         let query_string = serde_json::to_vec(&request.body.query).unwrap();
-        let f = ctx.node_router.search(request.name.clone(), query_string)
+        let f = ctx
+            .node_router
+            .search(request.name.clone(), query_string)
             .and_then(move |result| process_search_results(result, request.name, start));
         Box::new(f)
     }
@@ -86,12 +88,18 @@ fn process_search_results(
 ) -> Result<SearchResponse, Error> {
     let dt = start.elapsed();
     let took = dt.as_secs() as u64 * 1000 + dt.subsec_millis() as u64;
-    let hits = result.get_hits().into_iter().map(|hit| Ok(SearchHitResponse {
-        index_name: index_name.clone(),
-        id: hit.id.clone(),
-        score: hit.score,
-        source: serde_json::from_slice(hit.get_source())?
-    })).collect::<Result<Vec<SearchHitResponse>, Error>>();
+    let hits = result
+        .get_hits()
+        .into_iter()
+        .map(|hit| {
+            Ok(SearchHitResponse {
+                index_name: index_name.clone(),
+                id: hit.id.clone(),
+                score: hit.score,
+                source: serde_json::from_slice(hit.get_source())?,
+            })
+        })
+        .collect::<Result<Vec<SearchHitResponse>, Error>>();
     hits.map(|hits| SearchResponse {
         took,
         hits,

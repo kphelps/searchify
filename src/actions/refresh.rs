@@ -1,8 +1,8 @@
 use super::{Action, ActionContext};
-use serde::*;
 use actix_web::*;
 use failure::Error;
 use futures::prelude::*;
+use serde::*;
 
 #[derive(Clone, Copy)]
 pub struct RefreshAction;
@@ -12,8 +12,7 @@ pub struct RefreshRequest {
 }
 
 #[derive(Serialize)]
-pub struct RefreshResponse {
-}
+pub struct RefreshResponse {}
 
 impl Action for RefreshAction {
     type Path = String;
@@ -29,9 +28,7 @@ impl Action for RefreshAction {
         "/{name}/_refresh".to_string()
     }
 
-    fn parse_http(&self, name: String, _request: &HttpRequest)
-        -> Self::ParseFuture
-    {
+    fn parse_http(&self, name: String, _request: &HttpRequest) -> Self::ParseFuture {
         Ok(RefreshRequest { name })
     }
 
@@ -39,10 +36,15 @@ impl Action for RefreshAction {
         HttpResponse::Ok().json(response)
     }
 
-    fn execute(&self, request: RefreshRequest, ctx: ActionContext)
-        -> Box<Future<Item=Self::Response, Error=Error>>
-    {
-        let f = ctx.node_router.refresh_index(&request.name).map(|_| RefreshResponse {});
+    fn execute(
+        &self,
+        request: RefreshRequest,
+        ctx: ActionContext,
+    ) -> Box<Future<Item = Self::Response, Error = Error>> {
+        let f = ctx
+            .node_router
+            .refresh_index(&request.name)
+            .map(|_| RefreshResponse {});
         Box::new(f)
     }
 }

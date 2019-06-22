@@ -1,7 +1,7 @@
-use actix_web::*;
-use crate::actions::{self, Action};
 use crate::action_executor::ActionExecutor;
+use crate::actions::{self, Action};
 use crate::config::Config;
+use actix_web::*;
 use failure::Error;
 use futures::prelude::*;
 use log::*;
@@ -13,17 +13,21 @@ struct WebApi {
 }
 
 fn register_action<A, P>(cfg: &mut web::ServiceConfig, action: A)
-where A: Action<Path=P> + Clone + 'static,
-      P: FromRequest + serde::de::DeserializeOwned + 'static
+where
+    A: Action<Path = P> + Clone + 'static,
+    P: FromRequest + serde::de::DeserializeOwned + 'static,
 {
     let path_string = action.path();
     let method = action.method();
-    let func = move |request: HttpRequest| -> Box<Future<Item=HttpResponse, Error=Error> + 'static> {
-        let path = web::Path::<P>::extract(&request).unwrap();
-        let state = web::Data::<WebApi>::extract(&request).unwrap();
-        let f = state.action_executor.execute_http(action.clone(), path, &request);
-        Box::new(f)
-    };
+    let func =
+        move |request: HttpRequest| -> Box<Future<Item = HttpResponse, Error = Error> + 'static> {
+            let path = web::Path::<P>::extract(&request).unwrap();
+            let state = web::Data::<WebApi>::extract(&request).unwrap();
+            let f = state
+                .action_executor
+                .execute_http(action.clone(), path, &request);
+            Box::new(f)
+        };
     cfg.route(&path_string, web::method(method).to(func));
 }
 
@@ -38,20 +42,19 @@ fn register_actions(cfg: &mut web::ServiceConfig) {
     register_action(cfg, actions::GetIndexAction);
 }
 
-pub fn start_web(
-    config: &Config,
-    action_executor: ActionExecutor,
-) -> Result<(), Error> {
+pub fn start_web(config: &Config, action_executor: ActionExecutor) -> Result<(), Error> {
     let address: SocketAddr = format!("{}:{}", config.web.host, config.web.port).parse()?;
     let state = WebApi { action_executor };
 
-    let build_app = move || App::new()
-        .data(state.clone())
-        .configure(register_actions);
+    let build_app = move || App::new().data(state.clone()).configure(register_actions);
 
     std::thread::spawn(move || {
         info!("Starting API on {}", address);
-        HttpServer::new(build_app).bind(address).unwrap().run().unwrap();
+        HttpServer::new(build_app)
+            .bind(address)
+            .unwrap()
+            .run()
+            .unwrap();
         info!("Stopped API");
     });
     Ok(())

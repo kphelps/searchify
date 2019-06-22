@@ -1,8 +1,8 @@
 use super::{Action, ActionContext};
-use serde::*;
 use actix_web::{HttpRequest, HttpResponse};
 use failure::Error;
 use futures::prelude::*;
+use serde::*;
 
 #[derive(Clone, Copy)]
 pub struct GetDocumentAction;
@@ -41,9 +41,11 @@ impl Action for GetDocumentAction {
         "/{name}/{id}".to_string()
     }
 
-    fn parse_http(&self, (name, id): (String, String), _request: &HttpRequest)
-        -> Result<GetDocumentRequest, Error>
-    {
+    fn parse_http(
+        &self,
+        (name, id): (String, String),
+        _request: &HttpRequest,
+    ) -> Result<GetDocumentRequest, Error> {
         Ok(GetDocumentRequest { name, id })
     }
 
@@ -51,8 +53,14 @@ impl Action for GetDocumentAction {
         HttpResponse::Ok().json(response)
     }
 
-    fn execute(&self, request: GetDocumentRequest, ctx: ActionContext) -> Box<Future<Item=Self::Response, Error=Error>> {
-        let f = ctx.node_router.get_document(request.name.clone(), request.id.clone().into())
+    fn execute(
+        &self,
+        request: GetDocumentRequest,
+        ctx: ActionContext,
+    ) -> Box<Future<Item = Self::Response, Error = Error>> {
+        let f = ctx
+            .node_router
+            .get_document(request.name.clone(), request.id.clone().into())
             .and_then(move |response| {
                 let source = if response.found {
                     let j = response.get_source();
@@ -61,7 +69,7 @@ impl Action for GetDocumentAction {
                 } else {
                     None
                 };
-                Ok(GetDocumentResponse{
+                Ok(GetDocumentResponse {
                     index_name: request.name,
                     id: request.id,
                     found: response.found,

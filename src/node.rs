@@ -70,11 +70,7 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
         &format!("{}:{}", config.advertised_host, config.port),
         clock.clone(),
     );
-    let node_router = NodeRouter::start(
-        &config,
-        gossip_server.state(),
-        cluster_state.clone(),
-    )?;
+    let node_router = NodeRouter::start(&config, gossip_server.state(), cluster_state.clone())?;
     let group_states = get_raft_groups(&storage_engine)?;
     let index_coordinator = IndexCoordinator::start(
         &config,

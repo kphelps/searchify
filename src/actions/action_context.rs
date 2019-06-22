@@ -6,8 +6,6 @@ pub struct ActionContext {
 
 impl ActionContext {
     pub fn new(node_router: NodeRouterHandle) -> Self {
-        Self {
-            node_router,
-        }
+        Self { node_router }
     }
 }
