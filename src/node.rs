@@ -95,11 +95,7 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
         config.port,
     )?;
     let action_executor = ActionExecutor::new(node_router.clone());
-    start_web(
-        config,
-        action_executor.clone(),
-        node_router.clone(),
-    )?;
+    start_web(config, action_executor.clone())?;
     start_master_process(
         &config,
         &group_states,

@@ -40,8 +40,8 @@ impl RaftStateMachine for SearchStateMachine {
 }
 
 impl SearchStateMachine {
-    pub fn new(shard_id: u64, path: impl AsRef<Path>, mappings: Mappings) -> Result<Self, Error> {
-        let storage = SearchStorage::new(shard_id, path, mappings)?;
+    pub fn new(path: impl AsRef<Path>, mappings: Mappings) -> Result<Self, Error> {
+        let storage = SearchStorage::new(path, mappings)?;
         Ok(Self { storage })
     }
 

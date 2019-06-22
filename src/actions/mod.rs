@@ -4,22 +4,28 @@ use futures::prelude::*;
 
 mod action_context;
 mod common;
+mod create_index;
 mod delete_document;
 mod delete_index;
 mod get_document;
+mod get_index;
 mod index_document;
 mod list_indices;
 mod refresh;
+mod search;
 
 pub use self::common::*;
 
 pub use self::action_context::ActionContext;
+pub use self::create_index::CreateIndexAction;
 pub use self::delete_index::DeleteIndexAction;
 pub use self::delete_document::DeleteDocumentAction;
 pub use self::get_document::GetDocumentAction;
+pub use self::get_index::GetIndexAction;
 pub use self::index_document::IndexDocumentAction;
 pub use self::list_indices::ListIndicesAction;
 pub use self::refresh::RefreshAction;
+pub use self::search::SearchAction;
 
 pub trait Action: Copy {
     type Path;

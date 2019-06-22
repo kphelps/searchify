@@ -7,6 +7,7 @@ pub struct DocumentId(String);
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct DocumentVersion(u64);
 
+#[allow(dead_code)] // TODO
 pub enum ExpectedVersion {
     Any,
     Version(DocumentVersion),

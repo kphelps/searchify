@@ -215,7 +215,8 @@ impl MappingVisitor for DocumentMappingVisitor {
         let maybe_value = properties.get(name);
         if maybe_value.is_some() {
             // TODO: clone is gonna be a perf issue here
-            self.value_stack.push(maybe_value.unwrap().clone());
+            let value = maybe_value.unwrap().clone();
+            self.value_stack.push(value);
             self.scope.push(name.to_string());
             return Ok(true);
         } else if name == "_id" {

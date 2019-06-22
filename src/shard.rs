@@ -55,7 +55,7 @@ impl Shard {
 
         let storage_path = Path::new(storage_root).join(id.to_string());
         let mappings = serde_json::from_str(shard_state.get_mappings())?;
-        let state_machine = SearchStateMachine::new(id, storage_path, mappings)?;
+        let state_machine = SearchStateMachine::new(storage_path, mappings)?;
         let raft_storage = RaftStorage::new(group_state.clone(), raft_storage_engine.clone())?;
         let raft = RaftClient::new(
             node_id,

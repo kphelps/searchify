@@ -9,7 +9,7 @@ use failure::{err_msg, Error};
 use futures::{future, prelude::*, sync::oneshot};
 use log::*;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio_timer::Interval;
 
@@ -306,7 +306,7 @@ impl std::ops::Deref for NodeRouterHandle {
     }
 }
 
-struct ShardClient {
+pub struct ShardClient {
     client: RpcClient,
     shard: ShardState,
 }

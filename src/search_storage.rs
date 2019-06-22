@@ -14,8 +14,7 @@ use tantivy::{
 };
 
 pub struct SearchStorage {
-    shard_id: u64,
-    index: Index,
+    _index: Index,
     reader: IndexReader,
     writer: IndexWriter,
     mappings: Mappings,
@@ -30,7 +29,7 @@ pub enum SearchStorageError {
 }
 
 impl SearchStorage {
-    pub fn new<P>(shard_id: u64, path: P, mappings: Mappings) -> Result<Self, Error>
+    pub fn new<P>(path: P, mappings: Mappings) -> Result<Self, Error>
     where
         P: AsRef<Path>,
     {
@@ -42,8 +41,7 @@ impl SearchStorage {
         let writer = index.writer(200_000_000)?;
 
         Ok(SearchStorage {
-            shard_id,
-            index,
+            _index: index,
             reader,
             writer,
             mappings,
@@ -199,7 +197,7 @@ mod test {
     }
 
     fn new_storage(dir: &tempfile::TempDir) -> SearchStorage {
-        SearchStorage::new(1, dir.path(), new_mappings()).unwrap()
+        SearchStorage::new(dir.path(), new_mappings()).unwrap()
     }
 
     #[test]

@@ -34,7 +34,6 @@ tokio-dns-unofficial = "*"
 tokio-retry = "*"
 tokio-signal = "*"
 tokio-timer = "*"
-tower-web = "*"
 uuid = "*"
 
 [dependencies.rocksdb]

@@ -3,7 +3,6 @@ use serde::*;
 use actix_web::*;
 use failure::Error;
 use futures::prelude::*;
-use serde_json::Value as JsonValue;
 
 #[derive(Clone, Copy)]
 pub struct RefreshAction;
@@ -30,7 +29,7 @@ impl Action for RefreshAction {
         "/{name}/_refresh".to_string()
     }
 
-    fn parse_http(&self, (name): String, request: &HttpRequest)
+    fn parse_http(&self, name: String, _request: &HttpRequest)
         -> Self::ParseFuture
     {
         Ok(RefreshRequest { name })
