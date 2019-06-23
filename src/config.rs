@@ -1,5 +1,5 @@
 use config::{Config as ConfigBuilder, ConfigError, Environment, File};
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use std::path::Path;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -36,7 +36,6 @@ impl Config {
     fn default_builder() -> Result<ConfigBuilder, ConfigError> {
         let mut s = ConfigBuilder::new();
         s.set_default("port", 11666)?
-            .set_default("node_id", 1)?
             .set_default("storage_root", "./data")?
             .set_default("master_ids", vec![1, 2, 3])?
             .set_default("seeds", Vec::<String>::new())?

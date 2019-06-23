@@ -1,4 +1,5 @@
 use crate::clock::{Clock, HybridTimestamp};
+use crate::event_emitter::EventEmitter;
 use crate::proto::gossip::*;
 use crate::proto::gossip_grpc::*;
 use crate::proto::PeerState;
@@ -40,6 +41,11 @@ impl Gossip for GossipServer {
 enum ClientEvent {
     GossipTick,
     Done,
+}
+
+#[derive(Clone)]
+pub enum PeerStateEvent {
+    PeerJoined(u64)
 }
 
 impl GossipServer {
@@ -113,6 +119,7 @@ struct InnerGossipState {
     clients: HashMap<String, RpcClient>,
     peers: HashMap<u64, GossipData>,
     event_publisher: mpsc::Sender<GossipEvent>,
+    event_emitter: EventEmitter<PeerStateEvent>,
 }
 
 enum GossipEvent {
@@ -133,9 +140,11 @@ impl GossipState {
         let mut current = GossipData::new();
         current.set_node_id(node_id);
         current.set_address(self_address.to_string());
+        let event_emitter = EventEmitter::new(32);
         let inner = InnerGossipState {
             current,
             event_publisher,
+            event_emitter,
             clock,
             connections: HashMap::new(),
             clients: HashMap::new(),
@@ -148,6 +157,11 @@ impl GossipState {
         Self {
             inner: Arc::new(RwLock::new(inner)),
         }
+    }
+
+    pub fn subscribe(&self) -> mpsc::Receiver<PeerStateEvent> {
+        let mut locked = self.inner.write().unwrap();
+        locked.event_emitter.subscribe()
     }
 
     fn get_current(&self) -> GossipData {
@@ -268,9 +282,16 @@ impl InnerGossipState {
 
     fn update_node_liveness(&mut self, peer: &PeerState) {
         let peer_id = peer.get_peer().id;
+        if self.current.get_node_liveness().get(&peer_id).is_none() {
+            self.emit_new_live_node(peer_id)
+        }
         self.current
             .mut_node_liveness()
             .insert(peer_id, peer.clone());
+    }
+
+    fn emit_new_live_node(&self, peer_id: u64) {
+        self.event_emitter.emit(PeerStateEvent::PeerJoined(peer_id))
     }
 }
 

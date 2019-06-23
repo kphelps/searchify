@@ -1,5 +1,11 @@
 #+TODO: TODO DOING | DONE
 
+need to have leader listen to gossip for new nodes
+when a new node is added and its node id isn't in the master set
+we should start adding a learner
+
+I think learners need to have their ID seeded in their persisted config
+
 * Current Notes
   
   [[file:src/search_storage.rs:://%20TODO:%20why%20is%20this%20failing?!?!][Failing test to fix]] 

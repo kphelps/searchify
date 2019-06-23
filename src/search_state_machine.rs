@@ -37,6 +37,10 @@ impl RaftStateMachine for SearchStateMachine {
         };
         Ok(committed)
     }
+
+    fn peers(&self) -> Result<Vec<u64>, Error> {
+        Ok(Vec::new())
+    }
 }
 
 impl SearchStateMachine {

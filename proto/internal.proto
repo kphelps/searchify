@@ -60,6 +60,9 @@ message RaftGroupMetaState {
   uint64 id = 1;
   repeated Peer peers = 2;
   RaftGroupType group_type = 3;
+  repeated Peer learners = 4;
+  bytes pending_membership_config = 5; 
+  uint64 pending_membership_config_index = 6; 
 }
 
 message Peer {

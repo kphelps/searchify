@@ -1,5 +1,6 @@
 advertised_host = "localhost"
 storage_root = "./data_1"
+node_id = 1
 seeds = [
   "localhost:11667",
   "localhost:11668",

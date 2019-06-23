@@ -1,5 +1,5 @@
 use failure::{Error, Fail};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tantivy::{
     query::{self, Occur, Query},

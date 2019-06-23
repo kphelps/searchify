@@ -36,6 +36,10 @@ where
         Ok(self.cache.remove(k).expect("Index out of sync"))
     }
 
+    pub fn keys(&self) -> Vec<K> {
+        self.cache.keys().cloned().collect()
+    }
+
     fn init_cache(&mut self) -> Result<(), Error> {
         let mut cache = HashMap::new();
         self.persistent.scan(|k, v| {

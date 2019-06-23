@@ -14,6 +14,7 @@ use grpcio::{
     EnvBuilder, RpcContext, RpcStatus, RpcStatusCode, Server, ServerBuilder, Service, UnarySink,
 };
 use log::*;
+use prost::Message;
 use protobuf::parse_from_bytes;
 use raft::eraftpb;
 use std::fmt::Debug;
@@ -35,7 +36,6 @@ impl Internal for InternalServer {
         req: HeartbeatRequest,
         sink: UnarySink<EmptyResponse>,
     ) {
-        debug!("Heartbeat from '{}'", req.get_peer().get_id());
         let (sender, receiver) = channel();
         let expires_at = self.clock.for_expiration_in(Duration::from_secs(15));
         let proposal = KeyValueStateMachine::propose_heartbeat(req, expires_at, sender);
@@ -48,7 +48,7 @@ impl Internal for InternalServer {
         req: SearchifyRaftMessage,
         sink: UnarySink<EmptyResponse>,
     ) {
-        let raft_message = parse_from_bytes::<eraftpb::Message>(&req.wrapped_message).unwrap();
+        let raft_message = eraftpb::Message::decode(&req.wrapped_message).unwrap();
         let message = RaftMessageReceived {
             raft_group_id: req.raft_group_id,
             message: raft_message,

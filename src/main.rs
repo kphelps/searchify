@@ -42,7 +42,7 @@ mod version_tracker;
 mod web;
 
 fn main() {
-    std::env::set_var("RUST_LOG", "searchify=info,raft=warn,tantivy=warn");
+    std::env::set_var("RUST_LOG", "searchify=info,raft=debug,tantivy=warn");
     env_logger::init();
     if let Err(err) = start() {
         error!("Failure: {}", err);

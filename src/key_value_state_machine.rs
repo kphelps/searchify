@@ -42,6 +42,10 @@ impl RaftStateMachine for KeyValueStateMachine {
         }
         Ok(true)
     }
+
+    fn peers(&self) -> Result<Vec<u64>, Error> {
+        Ok(self.nodes.keys())
+    }
 }
 
 type SimpleObserver<T, F> = FutureStateMachineObserver<T, F>;
@@ -91,6 +95,7 @@ impl KeyValueStateMachine {
     }
 
     fn liveness_heartbeat(&mut self, heartbeat: LivenessHeartbeat) -> Result<(), Error> {
+        log::info!("Heartbeat from: {}", heartbeat.get_peer().id);
         let mut peer_state = PeerState::new();
         peer_state.peer = heartbeat.peer;
         // TODO: check liveness?

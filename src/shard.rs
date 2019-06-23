@@ -87,6 +87,7 @@ impl Shard {
         init_raft_group(
             raft_storage_engine,
             shard.get_id(),
+            node_id,
             &shard
                 .get_replicas()
                 .iter()

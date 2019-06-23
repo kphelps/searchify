@@ -93,10 +93,6 @@ where
         &self,
         message: RaftMessageReceived,
     ) -> impl Future<Item = (), Error = Error> + Send {
-        debug!(
-            "[group-{}] Received message for {}",
-            message.raft_group_id, message.message.to
-        );
         self.get_group(message.raft_group_id)
             .and_then(move |raft| raft.receive_message(message))
     }
@@ -105,10 +101,6 @@ where
         &self,
         message: RaftPropose<K>,
     ) -> impl Future<Item = (), Error = Error> + Send {
-        debug!(
-            "[group-{}] Proposal {:?}",
-            message.raft_group_id, message.entry
-        );
         self.get_group(message.raft_group_id)
             .and_then(move |raft| raft.propose_entry(message))
     }

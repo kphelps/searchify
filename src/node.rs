@@ -57,7 +57,7 @@ fn run_system(
 fn build_system(config: &Config) -> Result<Inner, Error> {
     let storage_root = Path::new(&config.storage_root);
     let storage_engine = StorageEngine::new(&storage_root.join("cluster"))?;
-    init_node(&config.master_ids, &storage_engine)?;
+    init_node(config.node_id, &config.master_ids, &storage_engine)?;
 
     let cluster_state = ClusterState::new();
     let clock = Clock::new();
@@ -108,8 +108,8 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
     })
 }
 
-fn init_node(master_ids: &[u64], engine: &StorageEngine) -> Result<(), Error> {
-    init_raft_group(engine, 0, master_ids, RaftGroupType::RAFT_GROUP_META)
+fn init_node(peer_id: u64, master_ids: &[u64], engine: &StorageEngine) -> Result<(), Error> {
+    init_raft_group(engine, 0, peer_id, master_ids, RaftGroupType::RAFT_GROUP_META)
 }
 
 fn get_raft_groups(engine: &StorageEngine) -> Result<Vec<RaftGroupMetaState>, Error> {
@@ -133,10 +133,6 @@ fn start_master_process(
     kv_raft_router: &RaftRouter<KeyValueStateMachine>,
     clock: &Clock,
 ) -> Result<(), Error> {
-    if !config.master_ids.contains(&config.node_id) {
-        return Ok(());
-    }
-
     let group_state = group_states[0].clone();
     let storage = RaftStorage::new(group_state, storage_engine.clone())?;
     let kv_engine = StorageEngine::new(&storage_root.join("kv"))?;

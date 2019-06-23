@@ -23,9 +23,8 @@ protobuf = "*"
 prost = "*"
 prost-derive = "*"
 rand = "*"
-raft = "0.4"
-serde = "*"
-serde_derive = "*"
+raft = { git = "https://github.com/pingcap/raft-rs" }
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "*"
 tantivy = "*"
 tokio = "*"
@@ -40,7 +39,7 @@ uuid = "*"
 git = "https://github.com/pingcap/rust-rocksdb.git"
 
 [build-dependencies]
-protoc-grpcio = "*"
+protoc-grpcio = "1.0"
 
 [dev-dependencies]
 tempfile = "*"

@@ -12,6 +12,7 @@ use futures::{
     sync::{mpsc, oneshot},
 };
 use log::*;
+use prost::Message as _;
 use protobuf::{parse_from_bytes, Message};
 use raft::{
     self, eraftpb,
@@ -21,7 +22,7 @@ use raft::{
 };
 use std::boxed::Box;
 use std::clone::Clone;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::timer::Interval;
@@ -149,6 +150,7 @@ pub trait RaftStateMachine {
     type EntryType: Message;
 
     fn apply(&mut self, entry: Self::EntryType) -> Result<bool, Error>;
+    fn peers(&self) -> Result<Vec<u64>, Error>;
 }
 
 pub trait RaftEntryHandler<T> {
@@ -250,7 +252,6 @@ where
         let raft_group_id = storage.raft_group_id();
         let config = Config {
             id: node_id,
-            peers: vec![],
             heartbeat_tick: 3,
             election_tick: 10,
             applied: storage.last_applied_index(),
@@ -259,9 +260,9 @@ where
         };
         config.validate()?;
         let initial_state = storage.initial_state()?;
-        let mut node = RawNode::new(&config, storage, vec![])?;
+        let mut node = RawNode::new(&config, storage)?;
 
-        let peers = initial_state.conf_state.get_nodes();
+        let peers = initial_state.conf_state.nodes;
         if peers.len() == 1 && peers[0] == node_id {
             node.campaign()?;
         }
@@ -345,6 +346,7 @@ where
         let _ = self.compact();
         self.update_leader_id();
         self.check_for_role_change();
+        self.propose_membership_changes();
         Ok(())
     }
 
@@ -395,7 +397,7 @@ where
 
     fn propose(&mut self, context: Vec<u8>, data: Vec<u8>) -> Result<(), Error> {
         if self.raft_group_id != 0 {
-            debug!("Propose({}, {})", context.len(), data.len());
+            trace!("Propose({}, {})", context.len(), data.len());
         }
         self.raft_node.propose(context, data).map_err(|e| e.into())
     }
@@ -414,15 +416,36 @@ where
         result
     }
 
+    fn propose_membership_changes(&mut self) -> Result<(), Error> {
+        if !self.is_leader() || self.raft_node.raft.is_in_membership_change() {
+            return Ok(())
+        }
+
+        let peers = self.state_machine.peers()?;
+
+        let group_state = self.raft_node.get_store().raft_group.clone();
+        let masters = group_state.get_peers().iter().map(|p| p.id).collect::<HashSet<u64>>();
+        let existing_learners = group_state.get_learners().iter().map(|p| p.id).collect::<HashSet<u64>>();
+        let new_learners = peers.into_iter().filter(|p| !masters.contains(p)).collect::<HashSet<u64>>();
+        if new_learners == existing_learners {
+            return Ok(())
+        }
+
+        info!("Proposing membership change. Voters {:?}, Learners {:?}, Old Learners {:?}", masters, new_learners, existing_learners);
+
+        self.raft_node.raft.propose_membership_change((masters, new_learners))?;
+        Ok(())
+    }
+
     fn is_leader(&self) -> bool {
         self.raft_node.raft.leader_id == self.node_id
     }
 
     fn apply_snapshot(&mut self, ready: &Ready) -> Result<(), Error> {
-        if !raft::is_empty_snap(&ready.snapshot) {
+        if !raft::is_empty_snap(&ready.snapshot()) {
             self.raft_node
                 .mut_store()
-                .apply_snapshot(ready.snapshot.clone())?
+                .apply_snapshot(ready.snapshot().clone())?
         }
         Ok(())
     }
@@ -432,7 +455,7 @@ where
         ready: &Ready,
         batch: &mut MessageWriteBatch,
     ) -> Result<(), Error> {
-        self.raft_node.mut_store().append(&ready.entries, batch)
+        self.raft_node.mut_store().append(&ready.entries(), batch)
     }
 
     fn apply_hardstate(
@@ -440,7 +463,7 @@ where
         ready: &Ready,
         batch: &mut MessageWriteBatch,
     ) -> Result<(), Error> {
-        if let Some(ref hardstate) = ready.hs {
+        if let Some(ref hardstate) = ready.hs() {
             self.raft_node.mut_store().set_hardstate(hardstate, batch)?;
         }
         Ok(())
@@ -465,7 +488,7 @@ where
             let mut last_apply_index = 0;
             let mut conf_state = None;
             for entry in committed_entries {
-                if entry.get_data().is_empty() && entry.get_context().is_empty() {
+                if entry.data.is_empty() && entry.context.is_empty() {
                     // Emtpy entry, when the peer becomes Leader it will send an empty entry.
                     continue;
                 }
@@ -473,12 +496,12 @@ where
                 let did_apply = match entry.get_entry_type() {
                     eraftpb::EntryType::EntryNormal => self.handle_normal_entry(entry)?,
                     eraftpb::EntryType::EntryConfChange => {
-                        conf_state = Some(self.handle_conf_change_entry(entry));
+                        conf_state = Some(self.handle_conf_change_entry(entry)?);
                         true
                     }
                 };
                 if did_apply {
-                    last_apply_index = entry.get_index();
+                    last_apply_index = entry.index;
                 }
             }
             if last_apply_index > 0 {
@@ -509,21 +532,37 @@ where
         Ok(apply_result.unwrap_or(false))
     }
 
-    fn handle_conf_change_entry(&mut self, entry: &eraftpb::Entry) -> eraftpb::ConfState {
-        let cc = parse_from_bytes::<eraftpb::ConfChange>(entry.get_data()).expect("Valid protobuf");
+    fn handle_conf_change_entry(&mut self, entry: &eraftpb::Entry) -> Result<eraftpb::ConfState, Error> {
+        let cc = eraftpb::ConfChange::decode(&entry.data).expect("Valid protobuf");
+
+        info!("ConfChange: {:?}", cc);
 
         match cc.get_change_type() {
             eraftpb::ConfChangeType::AddNode => {
-                // self.node.mut_store().add_node(peer);
+                self.raft_node.mut_store().add_node(cc.node_id)?;
             }
             eraftpb::ConfChangeType::RemoveNode => {
-                // self.node.mut_store().remove_node(cc.node_id);
+                self.raft_node.mut_store().remove_node(cc.node_id)?;
             }
-            _ => (), // no learners right now
+            eraftpb::ConfChangeType::AddLearnerNode => {
+                self.raft_node.mut_store().add_learner(cc.node_id)?;
+            }
+            eraftpb::ConfChangeType::BeginMembershipChange => {
+                self.raft_node.raft.begin_membership_change(&cc)?;
+                if let Some(conf) = cc.configuration {
+                    self.raft_node.mut_store().membership_change(&conf.nodes, &conf.learners)?;
+                }
+            }
+            eraftpb::ConfChangeType::FinalizeMembershipChange => {
+                if let Err(err) = self.raft_node.raft.finalize_membership_change(&cc) {
+                    error!("FinalizeMembershipChange error: {:?}", err);
+                }
+            }
         }
 
         // TODO: callbacks?
-        self.raft_node.apply_conf_change(&cc)
+        Ok(self.raft_node.raft.prs().configuration().clone().into())
+        // let x = self.raft_node.apply_conf_change(&cc).map_err(Error::from);
     }
 
     fn advance_raft(&mut self, ready: Ready) {
