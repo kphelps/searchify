@@ -43,6 +43,7 @@ struct BulkAction;
 
 impl Action for BulkAction {
     type Path = String;
+    type Payload = Payload;
     type ParseFuture = Result<Self::Request, Error>;
     type Request = BulkRequest;
     type Response = BulkResponse;
@@ -55,7 +56,7 @@ impl Action for BulkAction {
         "/{name}/_bulk".to_string()
     }
 
-    fn parse_http(&self, index: String, request: &HttpRequest, _payload: Payload) -> Result<BulkRequest, Error> {
+    fn parse_http(&self, index: String, request: &HttpRequest, _payload: Self::Payload) -> Result<BulkRequest, Error> {
         Ok(BulkRequest {
             index,
             operations: Vec::new()

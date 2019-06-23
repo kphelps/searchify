@@ -1,6 +1,6 @@
 use super::{Action, ActionContext};
 use crate::mappings::Mappings;
-use actix_web::{*, web::Payload};
+use actix_web::{web::Payload, *};
 use failure::Error;
 use futures::prelude::*;
 use serde::*;
@@ -15,7 +15,7 @@ struct IndexSettings {
 }
 
 #[derive(Deserialize)]
-struct CreateIndexBody {
+pub struct CreateIndexBody {
     settings: IndexSettings,
     mappings: Mappings,
 }
@@ -33,7 +33,8 @@ pub struct CreateIndexResponse {
 
 impl Action for CreateIndexAction {
     type Path = String;
-    type ParseFuture = Box<Future<Item = Self::Request, Error = Error>>;
+    type Payload = web::Json<CreateIndexBody>;
+    type ParseFuture = Result<Self::Request, Error>;
     type Request = CreateIndexRequest;
     type Response = CreateIndexResponse;
 
@@ -45,18 +46,18 @@ impl Action for CreateIndexAction {
         "/{name}".to_string()
     }
 
-    fn parse_http(&self, name: String, request: &HttpRequest, payload: Payload) -> Self::ParseFuture {
-        let s: Box<dyn Stream<Item = web::Bytes, Error = client::PayloadError> + 'static> = Box::new(payload);
-        let mut p = actix_web::dev::Payload::Stream(s);
-        let f = web::Json::<CreateIndexBody>::from_request(&request, &mut p)
-            .map_err(|e| failure::format_err!("Failed to parse body: {:?}", e))
-            .map(|j| j.into_inner())
-            .map(|body| CreateIndexRequest {
-                name,
-                settings: body.settings,
-                mappings: body.mappings,
-            });
-        Box::new(f)
+    fn parse_http(
+        &self,
+        name: String,
+        request: &HttpRequest,
+        body: Self::Payload,
+    ) -> Self::ParseFuture {
+        let body = body.into_inner();
+        Ok(CreateIndexRequest {
+            name,
+            settings: body.settings,
+            mappings: body.mappings,
+        })
     }
 
     fn to_http_response(&self, response: CreateIndexResponse) -> HttpResponse {

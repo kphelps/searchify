@@ -1,5 +1,5 @@
 use super::{Action, ActionContext, Index};
-use actix_web::{HttpRequest, HttpResponse, web::Payload};
+use actix_web::{web::Payload, HttpRequest, HttpResponse};
 use failure::Error;
 use futures::prelude::*;
 use serde::*;
@@ -14,6 +14,7 @@ pub struct ListIndicesResponse {
 
 impl Action for ListIndicesAction {
     type Path = ();
+    type Payload = Payload;
     type ParseFuture = Result<Self::Request, Error>;
     type Request = ();
     type Response = ListIndicesResponse;
@@ -26,7 +27,12 @@ impl Action for ListIndicesAction {
         "/_cat/indices".to_string()
     }
 
-    fn parse_http(&self, _: (), _request: &HttpRequest, _payload: Payload) -> Result<(), Error> {
+    fn parse_http(
+        &self,
+        _: (),
+        _request: &HttpRequest,
+        _payload: Self::Payload,
+    ) -> Result<(), Error> {
         Ok(())
     }
 

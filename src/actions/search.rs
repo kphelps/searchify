@@ -1,7 +1,7 @@
 use super::{Action, ActionContext, ShardResultResponse};
 use crate::proto::MergedSearchResponse;
 use crate::query_api::SearchQuery;
-use actix_web::{*, web::Payload};
+use actix_web::{web::Payload, *};
 use failure::Error;
 use futures::prelude::*;
 use serde::*;
@@ -42,7 +42,8 @@ pub struct SearchHitResponse {
 
 impl Action for SearchAction {
     type Path = String;
-    type ParseFuture = Box<Future<Item = Self::Request, Error = Error>>;
+    type Payload = web::Json<SearchBody>;
+    type ParseFuture = Result<Self::Request, Error>;
     type Request = SearchRequest;
     type Response = SearchResponse;
 
@@ -51,15 +52,19 @@ impl Action for SearchAction {
     }
 
     fn path(&self) -> String {
-        "/{name}".to_string()
+        "/{name}/_search".to_string()
     }
 
-    fn parse_http(&self, name: String, request: &HttpRequest, _payload: Payload) -> Self::ParseFuture {
-        let f = web::Json::<SearchBody>::extract(&request)
-            .map_err(|_| failure::err_msg("Failed to parse body"))
-            .map(|j| j.into_inner())
-            .map(|body| SearchRequest { name, body });
-        Box::new(f)
+    fn parse_http(
+        &self,
+        name: String,
+        _request: &HttpRequest,
+        body: Self::Payload,
+    ) -> Self::ParseFuture {
+        Ok(SearchRequest {
+            name,
+            body: body.into_inner(),
+        })
     }
 
     fn to_http_response(&self, response: SearchResponse) -> HttpResponse {

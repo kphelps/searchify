@@ -45,7 +45,7 @@ enum ClientEvent {
 
 #[derive(Clone)]
 pub enum PeerStateEvent {
-    PeerJoined(u64)
+    PeerJoined(u64),
 }
 
 impl GossipServer {

@@ -1,4 +1,4 @@
-use crate::cluster_state::ClusterState;
+use crate::cluster_state::{ClusterState, ClusterStateRef};
 use crate::config::Config;
 use crate::document::DocumentId;
 use crate::gossip::GossipState;
@@ -16,7 +16,7 @@ use tokio_timer::Interval;
 pub struct NodeRouter {
     gossip_state: GossipState,
     tasks: Arc<Mutex<Vec<oneshot::Sender<()>>>>,
-    cluster_state: ClusterState,
+    cluster_state: ClusterStateRef,
 }
 
 #[derive(Clone)]
@@ -34,7 +34,7 @@ impl NodeRouter {
         );
         Self {
             gossip_state,
-            cluster_state,
+            cluster_state: cluster_state.handle(),
             tasks: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -147,7 +147,8 @@ impl NodeRouter {
     ) -> impl Future<Item = MergedSearchResponse, Error = Error> {
         let resolver = self.gossip_state.clone();
         let limit = 10;
-        self.get_index(index_name.to_string())
+        self.get_cached_index(&index_name)
+            .into_future()
             .and_then(move |index| {
                 let futures = index.shards.into_iter().map(move |shard| {
                     let query = query.clone();
@@ -270,8 +271,12 @@ impl NodeRouter {
 
     fn get_cached_index(&self, index_name: &str) -> Result<IndexState, Error> {
         self.cluster_state
-            .get_index(index_name)
-            .ok_or_else(|| err_msg("Index not found"))
+            .upgrade()
+            .ok_or_else(|| err_msg("Cluster state unavailable"))
+            .and_then(|cs| {
+                cs.get_index(index_name)
+                    .ok_or_else(|| err_msg("Index not found"))
+            })
     }
 
     fn peer(&self, id: u64) -> Result<RpcClient, Error> {

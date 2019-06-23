@@ -14,16 +14,17 @@ impl ActionExecutor {
         Self { node_router }
     }
 
-    pub fn execute_http<A, P>(
+    pub fn execute_http<A, B, P>(
         &self,
         action: A,
         path: web::Path<P>,
         request: &HttpRequest,
-        payload: web::Payload,
+        payload: B,
     ) -> impl Future<Item = HttpResponse, Error = Error> + 'static
     where
-        A: Action<Path = P> + 'static,
+        A: Action<Payload = B, Path = P> + 'static,
         P: FromRequest,
+        B: FromRequest,
     {
         let executor = self.clone();
         action

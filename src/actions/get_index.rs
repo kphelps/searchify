@@ -1,5 +1,5 @@
 use super::{Action, ActionContext, Index};
-use actix_web::{*, web::Payload};
+use actix_web::{web::Payload, *};
 use failure::Error;
 use futures::prelude::*;
 
@@ -12,6 +12,7 @@ pub struct GetIndexRequest {
 
 impl Action for GetIndexAction {
     type Path = String;
+    type Payload = Payload;
     type ParseFuture = Result<Self::Request, Error>;
     type Request = GetIndexRequest;
     type Response = Index;
@@ -24,7 +25,12 @@ impl Action for GetIndexAction {
         "/{name}".to_string()
     }
 
-    fn parse_http(&self, name: String, _request: &HttpRequest, _payload: Payload) -> Self::ParseFuture {
+    fn parse_http(
+        &self,
+        name: String,
+        _request: &HttpRequest,
+        _payload: Self::Payload,
+    ) -> Self::ParseFuture {
         Ok(GetIndexRequest { name })
     }
 

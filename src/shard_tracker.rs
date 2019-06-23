@@ -46,19 +46,18 @@ impl ShardTracker {
         self.by_index.get(&index_id, &self.shards)
     }
 
-    pub fn delete_shards_for_index(&mut self, index_id: u64) -> Result<(), Error> {
-        let shards = self.by_index.get(&index_id, &self.shards);
-        shards
+    pub fn delete_shards_for_index(&mut self, index_id: u64) -> Result<Vec<u64>, Error> {
+        self.by_index
+            .get(&index_id, &self.shards)
             .iter()
             .map(|shard| self.delete_shard(shard))
-            .collect::<Result<(), Error>>()?;
-        Ok(())
+            .collect::<Result<Vec<u64>, Error>>()
     }
 
-    fn delete_shard(&mut self, shard: &ShardState) -> Result<(), Error> {
+    fn delete_shard(&mut self, shard: &ShardState) -> Result<u64, Error> {
         self.shards.delete(&shard.id)?;
         self.update_indices_for_deleted_shard(shard);
-        Ok(())
+        Ok(shard.id)
     }
 
     fn initialize_indices(&mut self) {

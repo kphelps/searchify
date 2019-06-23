@@ -1,4 +1,4 @@
-use actix_web::{HttpRequest, HttpResponse, web::Payload};
+use actix_web::{web::Payload, HttpRequest, HttpResponse};
 use failure::Error;
 use futures::prelude::*;
 
@@ -29,13 +29,19 @@ pub use self::search::SearchAction;
 
 pub trait Action: Copy {
     type Path;
+    type Payload;
     type ParseFuture: IntoFuture<Item = Self::Request, Error = Error>;
     type Request;
     type Response;
 
     fn method(&self) -> actix_web::http::Method;
     fn path(&self) -> String;
-    fn parse_http(&self, path: Self::Path, request: &HttpRequest, _payload: Payload) -> Self::ParseFuture;
+    fn parse_http(
+        &self,
+        path: Self::Path,
+        request: &HttpRequest,
+        _payload: Self::Payload,
+    ) -> Self::ParseFuture;
     fn to_http_response(&self, response: Self::Response) -> HttpResponse;
     fn execute(
         &self,

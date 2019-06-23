@@ -1,3 +1,4 @@
+use crate::cluster_state::{ClusterState, ClusterStateEvent};
 use crate::config::Config;
 use crate::node_router::NodeRouterHandle;
 use crate::proto::*;
@@ -6,15 +7,12 @@ use crate::search_state_machine::SearchStateMachine;
 use crate::shard::Shard;
 use crate::storage_engine::StorageEngine;
 use failure::Error;
-use futures::{future, prelude::*, stream, sync::mpsc};
+use futures::prelude::*;
 use log::*;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
-pub struct IndexCoordinator {
-    _sender: mpsc::Sender<()>,
-}
+#[derive(Clone)]
+pub struct IndexCoordinator {}
 
 pub struct Inner {
     config: Config,
@@ -24,16 +22,10 @@ pub struct Inner {
     raft_router: RaftRouter<SearchStateMachine>,
 }
 
-#[derive(Debug, Eq, PartialEq)]
-enum SearchEvent {
-    Event,
-    Poll,
-    Done,
-}
-
 impl IndexCoordinator {
     pub fn start(
         config: &Config,
+        cluster_state: ClusterState,
         node_router: NodeRouterHandle,
         raft_storage_engine: StorageEngine,
         raft_group_states: &[RaftGroupMetaState],
@@ -47,56 +39,62 @@ impl IndexCoordinator {
             raft_router: raft_router.clone(),
         };
 
+        coordinator.initialize(&cluster_state, raft_group_states)?;
+        Self::run_event_loop(coordinator, cluster_state);
+
+        Ok(Self {})
+    }
+
+    fn run_event_loop(mut inner: Inner, cluster_state: ClusterState) {
+        let task = cluster_state.subscribe().for_each(move |event| {
+            match event {
+                ClusterStateEvent::ShardAllocated(shard) => {
+                    // TODO: this should just update in memory and process in the
+                    // background to avoid holding the lock too long. We should
+                    // also retry allocating the shard indefinitely since the
+                    // cluster allocated it here.
+                    if let Err(err) = inner.on_new_shard(shard) {
+                        error!("Failed to allocate shard: {}", err);
+                    }
+                }
+            };
+            Ok(())
+        });
+        tokio::spawn(task);
+    }
+}
+
+impl Inner {
+    fn initialize(
+        &mut self,
+        cluster_state: &ClusterState,
+        raft_group_states: &[RaftGroupMetaState],
+    ) -> Result<(), Error> {
         raft_group_states
             .iter()
             .map(|state| {
                 if state.group_type == RaftGroupType::RAFT_GROUP_SEARCH {
-                    coordinator.initialize_shard_from_disk(state)
+                    self.initialize_shard_from_disk(state)
                 } else {
                     Ok(())
                 }
             })
             .collect::<Result<(), Error>>()?;
-        let (sender, receiver) = mpsc::channel(1024);
-        coordinator.run(receiver);
-        Ok(Self { _sender: sender })
-    }
-}
-
-impl Inner {
-    fn run(self, receiver: mpsc::Receiver<()>) {
-        let this = Arc::new(Mutex::new(self));
-        let ticker = tokio::timer::Interval::new(Instant::now(), Duration::from_secs(5))
-            .map(|_| SearchEvent::Poll)
-            .map_err(|_| ());
-        let events = receiver
-            .map(|_| SearchEvent::Event)
-            .chain(stream::once(Ok(SearchEvent::Done)))
-            .select(ticker)
-            .take_while(|item| future::ok(*item != SearchEvent::Done));
-        let f = events.for_each(move |_| {
-            Self::poll_node_info(this.clone())
-                .map_err(|err| debug!("Error in node polling loop: {:?}", err))
-                .then(|_| Ok(()))
-        });
-        tokio::spawn(f.then(|_| Ok(())));
+        cluster_state
+            .shards_for_node()
+            .into_iter()
+            .map(|shard| self.on_new_shard(shard))
+            .collect::<Result<(), Error>>()?;
+        // TODO: delete shards that don't exist in the cluster state
+        Ok(())
     }
 
-    fn poll_node_info(this: Arc<Mutex<Self>>) -> impl Future<Item = (), Error = Error> {
-        let f = {
-            let inner = this.lock().unwrap();
-            inner.node_router.list_shards(inner.config.node_id)
-        };
-        f.map(move |shards| {
-            let mut inner = this.lock().unwrap();
-            shards.iter().for_each(|shard| {
-                if inner.shards.get(&shard.id).is_none() {
-                    if let Err(err) = inner.allocate_shard(&shard) {
-                        error!("Failed to allocate shard: {:?}", err);
-                    }
-                }
-            })
-        })
+    fn on_new_shard(&mut self, shard: ShardState) -> Result<(), Error> {
+        if self.shards.get(&shard.id).is_some() {
+            return Ok(());
+        }
+
+        self.allocate_shard(&shard)
     }
 
     fn initialize_shard_from_disk(&mut self, state: &RaftGroupMetaState) -> Result<(), Error> {

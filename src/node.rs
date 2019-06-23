@@ -3,6 +3,7 @@ use crate::clock::Clock;
 use crate::cluster_state::{ClusterState, ClusterStateUpdater};
 use crate::config::Config;
 use crate::gossip::GossipServer;
+use crate::index_coordinator::IndexCoordinator;
 use crate::key_value_state_machine::{KeyValueStateMachine, MetaStateEvent};
 use crate::network::{start_rpc_server, InternalServer};
 use crate::node_router::{NodeRouter, NodeRouterHandle};
@@ -12,7 +13,6 @@ use crate::raft_router::RaftRouter;
 use crate::raft_storage::{
     init_raft_group, RaftStorage, LOCAL_PREFIX, RAFT_GROUP_META_PREFIX, RAFT_GROUP_META_PREFIX_KEY,
 };
-use crate::search::IndexCoordinator;
 use crate::storage_engine::StorageEngine;
 use crate::web::start_web;
 use failure::Error;
@@ -59,7 +59,7 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
     let storage_engine = StorageEngine::new(&storage_root.join("cluster"))?;
     init_node(config.node_id, &config.master_ids, &storage_engine)?;
 
-    let cluster_state = ClusterState::new();
+    let cluster_state = ClusterState::new(config.node_id);
     let clock = Clock::new();
     let kv_raft_router = RaftRouter::new();
     let search_raft_router = RaftRouter::new();
@@ -74,6 +74,7 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
     let group_states = get_raft_groups(&storage_engine)?;
     let index_coordinator = IndexCoordinator::start(
         &config,
+        cluster_state.clone(),
         node_router.clone(),
         storage_engine.clone(),
         &group_states,
@@ -110,7 +111,13 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
 }
 
 fn init_node(peer_id: u64, master_ids: &[u64], engine: &StorageEngine) -> Result<(), Error> {
-    init_raft_group(engine, 0, peer_id, master_ids, RaftGroupType::RAFT_GROUP_META)
+    init_raft_group(
+        engine,
+        0,
+        peer_id,
+        master_ids,
+        RaftGroupType::RAFT_GROUP_META,
+    )
 }
 
 fn get_raft_groups(engine: &StorageEngine) -> Result<Vec<RaftGroupMetaState>, Error> {
@@ -155,6 +162,7 @@ fn start_cluster_service(
         .subscribe()
         .for_each(move |event| Ok(cluster_state_updater.handle_event(event)));
     tokio::spawn(cluster_state_update_task);
+    cluster_state.initialize(&kv_state_machine);
 
     let meta_raft = RaftClient::new(
         config.node_id,

@@ -418,22 +418,38 @@ where
 
     fn propose_membership_changes(&mut self) -> Result<(), Error> {
         if !self.is_leader() || self.raft_node.raft.is_in_membership_change() {
-            return Ok(())
+            return Ok(());
         }
 
         let peers = self.state_machine.peers()?;
 
         let group_state = self.raft_node.get_store().raft_group.clone();
-        let masters = group_state.get_peers().iter().map(|p| p.id).collect::<HashSet<u64>>();
-        let existing_learners = group_state.get_learners().iter().map(|p| p.id).collect::<HashSet<u64>>();
-        let new_learners = peers.into_iter().filter(|p| !masters.contains(p)).collect::<HashSet<u64>>();
+        let masters = group_state
+            .get_peers()
+            .iter()
+            .map(|p| p.id)
+            .collect::<HashSet<u64>>();
+        let existing_learners = group_state
+            .get_learners()
+            .iter()
+            .map(|p| p.id)
+            .collect::<HashSet<u64>>();
+        let new_learners = peers
+            .into_iter()
+            .filter(|p| !masters.contains(p))
+            .collect::<HashSet<u64>>();
         if new_learners == existing_learners {
-            return Ok(())
+            return Ok(());
         }
 
-        info!("Proposing membership change. Voters {:?}, Learners {:?}, Old Learners {:?}", masters, new_learners, existing_learners);
+        info!(
+            "Proposing membership change. Voters {:?}, Learners {:?}, Old Learners {:?}",
+            masters, new_learners, existing_learners
+        );
 
-        self.raft_node.raft.propose_membership_change((masters, new_learners))?;
+        self.raft_node
+            .raft
+            .propose_membership_change((masters, new_learners))?;
         Ok(())
     }
 
@@ -532,7 +548,10 @@ where
         Ok(apply_result.unwrap_or(false))
     }
 
-    fn handle_conf_change_entry(&mut self, entry: &eraftpb::Entry) -> Result<eraftpb::ConfState, Error> {
+    fn handle_conf_change_entry(
+        &mut self,
+        entry: &eraftpb::Entry,
+    ) -> Result<eraftpb::ConfState, Error> {
         let cc = eraftpb::ConfChange::decode(&entry.data).expect("Valid protobuf");
 
         debug!("ConfChange: {:?}", cc);
@@ -550,7 +569,9 @@ where
             eraftpb::ConfChangeType::BeginMembershipChange => {
                 self.raft_node.raft.begin_membership_change(&cc)?;
                 if let Some(conf) = cc.configuration {
-                    self.raft_node.mut_store().membership_change(&conf.nodes, &conf.learners)?;
+                    self.raft_node
+                        .mut_store()
+                        .membership_change(&conf.nodes, &conf.learners)?;
                 }
             }
             eraftpb::ConfChangeType::FinalizeMembershipChange => {

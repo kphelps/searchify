@@ -1,5 +1,5 @@
 use super::{Action, ActionContext, ShardResultResponse};
-use actix_web::{HttpRequest, HttpResponse, web::Payload};
+use actix_web::{web::Payload, HttpRequest, HttpResponse};
 use failure::Error;
 use futures::prelude::*;
 use serde::*;
@@ -27,6 +27,7 @@ pub struct DeleteDocumentResponse {
 
 impl Action for DeleteDocumentAction {
     type Path = (String, String);
+    type Payload = Payload;
     type ParseFuture = Result<Self::Request, Error>;
     type Request = DeleteDocumentRequest;
     type Response = DeleteDocumentResponse;
@@ -43,7 +44,7 @@ impl Action for DeleteDocumentAction {
         &self,
         (name, id): (String, String),
         _request: &HttpRequest,
-        _payload: Payload,
+        _payload: Self::Payload,
     ) -> Result<DeleteDocumentRequest, Error> {
         Ok(DeleteDocumentRequest { name, id })
     }

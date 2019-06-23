@@ -1,5 +1,5 @@
 use super::{Action, ActionContext};
-use actix_web::{*, web::Payload};
+use actix_web::{web::Payload, *};
 use failure::Error;
 use futures::prelude::*;
 use serde::*;
@@ -16,6 +16,7 @@ pub struct RefreshResponse {}
 
 impl Action for RefreshAction {
     type Path = String;
+    type Payload = Payload;
     type ParseFuture = Result<Self::Request, Error>;
     type Request = RefreshRequest;
     type Response = RefreshResponse;
@@ -28,7 +29,12 @@ impl Action for RefreshAction {
         "/{name}/_refresh".to_string()
     }
 
-    fn parse_http(&self, name: String, _request: &HttpRequest, _payload: Payload) -> Self::ParseFuture {
+    fn parse_http(
+        &self,
+        name: String,
+        _request: &HttpRequest,
+        _payload: Self::Payload,
+    ) -> Self::ParseFuture {
         Ok(RefreshRequest { name })
     }
 

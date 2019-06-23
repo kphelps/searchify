@@ -1,5 +1,5 @@
 use super::{Action, ActionContext};
-use actix_web::{HttpRequest, HttpResponse, web::Payload};
+use actix_web::{web::Payload, HttpRequest, HttpResponse};
 use failure::Error;
 use futures::prelude::*;
 
@@ -12,6 +12,7 @@ pub struct DeleteIndexRequest {
 
 impl Action for DeleteIndexAction {
     type Path = String;
+    type Payload = Payload;
     type ParseFuture = Result<Self::Request, Error>;
     type Request = DeleteIndexRequest;
     type Response = ();
@@ -28,7 +29,7 @@ impl Action for DeleteIndexAction {
         &self,
         index: String,
         _request: &HttpRequest,
-        _payload: Payload,
+        _payload: Self::Payload,
     ) -> Result<DeleteIndexRequest, Error> {
         Ok(DeleteIndexRequest { name: index })
     }

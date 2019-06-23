@@ -11,10 +11,11 @@ use failure::Error;
 use futures::sync::mpsc;
 use futures::sync::oneshot::Sender;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum MetaStateEvent {
     PeerUpdate(PeerState),
     IndexUpdate(String, Option<IndexState>),
+    ShardUpdate(u64, Option<ShardState>),
 }
 
 pub struct KeyValueStateMachine {
@@ -86,20 +87,30 @@ impl KeyValueStateMachine {
         let mut shards = self.allocate_shards(&index_state);
         for shard in shards.iter_mut() {
             self.shards.create_shard(shard)?;
+            self.event_emitter
+                .emit(MetaStateEvent::ShardUpdate(shard.id, Some(shard.clone())));
         }
-        self.event_emitter.emit(MetaStateEvent::IndexUpdate(index_state.name.clone(), Some(index_state)));
+        self.event_emitter.emit(MetaStateEvent::IndexUpdate(
+            index_state.name.clone(),
+            Some(index_state),
+        ));
         Ok(())
     }
 
     fn delete_index(&mut self, request: DeleteIndexRequest) -> Result<(), Error> {
         let index_state = self.indices.delete(&request.get_name().to_string())?;
-        self.shards.delete_shards_for_index(index_state.id)?;
-        self.event_emitter.emit(MetaStateEvent::IndexUpdate(index_state.name, None));
+        let shard_ids = self.shards.delete_shards_for_index(index_state.id)?;
+        shard_ids.into_iter().for_each(|id| {
+            self.event_emitter
+                .emit(MetaStateEvent::ShardUpdate(id, None));
+        });
+        self.event_emitter
+            .emit(MetaStateEvent::IndexUpdate(index_state.name, None));
         Ok(())
     }
 
     fn liveness_heartbeat(&mut self, heartbeat: LivenessHeartbeat) -> Result<(), Error> {
-        log::info!("Heartbeat from: {}", heartbeat.get_peer().id);
+        log::trace!("Heartbeat from: {}", heartbeat.get_peer().id);
         let mut peer_state = PeerState::new();
         peer_state.peer = heartbeat.peer;
         // TODO: check liveness?
@@ -146,12 +157,15 @@ impl KeyValueStateMachine {
 
     pub fn live_nodes(&self) -> Vec<PeerState> {
         let now = self.clock.now();
-        self.nodes
+        let mut out = self
+            .nodes
             .cache()
             .values()
             .filter(|peer| now < peer.get_liveness().get_expires_at().into())
             .cloned()
-            .collect()
+            .collect::<Vec<PeerState>>();
+        out.sort_by_key(|peer| peer.get_peer().id);
+        out
     }
 
     pub fn index(&self, name: &str) -> Result<Option<IndexState>, Error> {

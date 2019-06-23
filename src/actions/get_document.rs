@@ -1,5 +1,5 @@
 use super::{Action, ActionContext};
-use actix_web::{HttpRequest, HttpResponse, web::Payload};
+use actix_web::{web::Payload, HttpRequest, HttpResponse};
 use failure::Error;
 use futures::prelude::*;
 use serde::*;
@@ -29,6 +29,7 @@ pub struct GetDocumentResponse {
 
 impl Action for GetDocumentAction {
     type Path = (String, String);
+    type Payload = Payload;
     type ParseFuture = Result<Self::Request, Error>;
     type Request = GetDocumentRequest;
     type Response = GetDocumentResponse;
@@ -45,7 +46,7 @@ impl Action for GetDocumentAction {
         &self,
         (name, id): (String, String),
         _request: &HttpRequest,
-        _payload: Payload,
+        _payload: Self::Payload,
     ) -> Result<GetDocumentRequest, Error> {
         Ok(GetDocumentRequest { name, id })
     }

@@ -9,7 +9,7 @@ use protobuf::Message;
 use raft::{
     eraftpb::{ConfState, Entry, HardState, Snapshot},
     storage::{RaftState, Storage},
-    Error as RaftError, Result as RaftResult, StorageError, 
+    Error as RaftError, Result as RaftResult, StorageError,
 };
 
 pub struct RaftStorage {
@@ -146,30 +146,59 @@ impl RaftStorage {
     }
 
     pub fn add_node(&mut self, id: u64) -> Result<(), Error> {
-        if self.raft_group.get_peers().iter().find(|p| p.id == id).is_some() {
-            return Ok(())
+        if self
+            .raft_group
+            .get_peers()
+            .iter()
+            .find(|p| p.id == id)
+            .is_some()
+        {
+            return Ok(());
         }
         self.raft_group.mut_peers().push(new_peer(id));
         self.persist_raft_group()
     }
 
     pub fn remove_node(&mut self, id: u64) -> Result<(), Error> {
-        let new_peers = self.raft_group.take_peers().into_iter().filter(|p| p.id != id);
-        self.raft_group.set_peers(new_peers.collect::<Vec<Peer>>().into());
+        let new_peers = self
+            .raft_group
+            .take_peers()
+            .into_iter()
+            .filter(|p| p.id != id);
+        self.raft_group
+            .set_peers(new_peers.collect::<Vec<Peer>>().into());
         self.persist_raft_group()
     }
 
     pub fn add_learner(&mut self, id: u64) -> Result<(), Error> {
-        if self.raft_group.get_learners().iter().find(|p| p.id == id).is_some() {
-            return Ok(())
+        if self
+            .raft_group
+            .get_learners()
+            .iter()
+            .find(|p| p.id == id)
+            .is_some()
+        {
+            return Ok(());
         }
         self.raft_group.mut_learners().push(new_peer(id));
         self.persist_raft_group()
     }
 
     pub fn membership_change(&mut self, nodes: &[u64], learners: &[u64]) -> Result<(), Error> {
-        self.raft_group.set_peers(nodes.iter().map(|n| new_peer(*n)).collect::<Vec<Peer>>().into());
-        self.raft_group.set_learners(learners.iter().map(|n| new_peer(*n)).collect::<Vec<Peer>>().into());
+        self.raft_group.set_peers(
+            nodes
+                .iter()
+                .map(|n| new_peer(*n))
+                .collect::<Vec<Peer>>()
+                .into(),
+        );
+        self.raft_group.set_learners(
+            learners
+                .iter()
+                .map(|n| new_peer(*n))
+                .collect::<Vec<Peer>>()
+                .into(),
+        );
         self.persist_raft_group()
     }
 
@@ -270,7 +299,12 @@ impl RaftStorage {
         hs
     }
 
-    fn entries(&self, low: u64, high: u64, max_size: impl Into<Option<u64>>) -> Result<Vec<Entry>, Error> {
+    fn entries(
+        &self,
+        low: u64,
+        high: u64,
+        max_size: impl Into<Option<u64>>,
+    ) -> Result<Vec<Entry>, Error> {
         let mut out = Vec::with_capacity((high - low) as usize);
         let start_key = self.raft_log_key(low);
         let end_key = self.raft_log_key(high);
@@ -305,7 +339,12 @@ impl Storage for RaftStorage {
         Ok(RaftState::new(self.hard_state(), conf_state))
     }
 
-    fn entries(&self, low: u64, high: u64, max_size: impl Into<Option<u64>>) -> RaftResult<Vec<Entry>> {
+    fn entries(
+        &self,
+        low: u64,
+        high: u64,
+        max_size: impl Into<Option<u64>>,
+    ) -> RaftResult<Vec<Entry>> {
         self.entries(low, high, max_size)
             .map_err(|_| RaftError::Store(StorageError::Unavailable))
     }

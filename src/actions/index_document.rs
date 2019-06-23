@@ -1,5 +1,5 @@
 use super::{Action, ActionContext};
-use actix_web::{*, web::Payload};
+use actix_web::*;
 use failure::Error;
 use futures::prelude::*;
 use serde::*;
@@ -19,7 +19,8 @@ pub struct IndexDocumentResponse {}
 
 impl Action for IndexDocumentAction {
     type Path = (String, String);
-    type ParseFuture = Box<Future<Item = Self::Request, Error = Error>>;
+    type Payload = web::Json<JsonValue>;
+    type ParseFuture = Result<Self::Request, Error>;
     type Request = IndexDocumentRequest;
     type Response = IndexDocumentResponse;
 
@@ -31,12 +32,17 @@ impl Action for IndexDocumentAction {
         "/{name}/{id}".to_string()
     }
 
-    fn parse_http(&self, (name, id): (String, String), request: &HttpRequest, _payload: Payload) -> Self::ParseFuture {
-        let f = web::Json::<JsonValue>::extract(&request)
-            .map_err(|_| failure::err_msg("Failed to parse body"))
-            .map(|j| j.into_inner())
-            .map(|document| IndexDocumentRequest { name, id, document });
-        Box::new(f)
+    fn parse_http(
+        &self,
+        (name, id): (String, String),
+        request: &HttpRequest,
+        document: Self::Payload,
+    ) -> Self::ParseFuture {
+        Ok(IndexDocumentRequest {
+            name,
+            id,
+            document: document.into_inner(),
+        })
     }
 
     fn to_http_response(&self, response: IndexDocumentResponse) -> HttpResponse {
