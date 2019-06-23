@@ -3,6 +3,7 @@ use failure::Error;
 use futures::prelude::*;
 
 mod action_context;
+mod bulk;
 mod common;
 mod create_index;
 mod delete_document;
