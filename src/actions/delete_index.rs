@@ -1,5 +1,5 @@
 use super::{Action, ActionContext};
-use actix_web::{HttpRequest, HttpResponse};
+use actix_web::{HttpRequest, HttpResponse, web::Payload};
 use failure::Error;
 use futures::prelude::*;
 
@@ -28,6 +28,7 @@ impl Action for DeleteIndexAction {
         &self,
         index: String,
         _request: &HttpRequest,
+        _payload: Payload,
     ) -> Result<DeleteIndexRequest, Error> {
         Ok(DeleteIndexRequest { name: index })
     }

@@ -1,7 +1,7 @@
 use super::{Action, ActionContext, ShardResultResponse};
 use crate::proto::MergedSearchResponse;
 use crate::query_api::SearchQuery;
-use actix_web::*;
+use actix_web::{*, web::Payload};
 use failure::Error;
 use futures::prelude::*;
 use serde::*;
@@ -54,7 +54,7 @@ impl Action for SearchAction {
         "/{name}".to_string()
     }
 
-    fn parse_http(&self, name: String, request: &HttpRequest) -> Self::ParseFuture {
+    fn parse_http(&self, name: String, request: &HttpRequest, _payload: Payload) -> Self::ParseFuture {
         let f = web::Json::<SearchBody>::extract(&request)
             .map_err(|_| failure::err_msg("Failed to parse body"))
             .map(|j| j.into_inner())

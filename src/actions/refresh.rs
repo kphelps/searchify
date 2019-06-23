@@ -1,5 +1,5 @@
 use super::{Action, ActionContext};
-use actix_web::*;
+use actix_web::{*, web::Payload};
 use failure::Error;
 use futures::prelude::*;
 use serde::*;
@@ -28,7 +28,7 @@ impl Action for RefreshAction {
         "/{name}/_refresh".to_string()
     }
 
-    fn parse_http(&self, name: String, _request: &HttpRequest) -> Self::ParseFuture {
+    fn parse_http(&self, name: String, _request: &HttpRequest, _payload: Payload) -> Self::ParseFuture {
         Ok(RefreshRequest { name })
     }
 

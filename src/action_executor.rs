@@ -19,6 +19,7 @@ impl ActionExecutor {
         action: A,
         path: web::Path<P>,
         request: &HttpRequest,
+        payload: web::Payload,
     ) -> impl Future<Item = HttpResponse, Error = Error> + 'static
     where
         A: Action<Path = P> + 'static,
@@ -26,7 +27,7 @@ impl ActionExecutor {
     {
         let executor = self.clone();
         action
-            .parse_http(path.into_inner(), request)
+            .parse_http(path.into_inner(), request, payload)
             .into_future()
             .and_then(move |action_request| executor.execute(&action, action_request))
             .map(move |action_response| action.to_http_response(action_response))

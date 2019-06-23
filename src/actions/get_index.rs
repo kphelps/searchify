@@ -1,5 +1,5 @@
 use super::{Action, ActionContext, Index};
-use actix_web::*;
+use actix_web::{*, web::Payload};
 use failure::Error;
 use futures::prelude::*;
 
@@ -24,7 +24,7 @@ impl Action for GetIndexAction {
         "/{name}".to_string()
     }
 
-    fn parse_http(&self, name: String, _request: &HttpRequest) -> Self::ParseFuture {
+    fn parse_http(&self, name: String, _request: &HttpRequest, _payload: Payload) -> Self::ParseFuture {
         Ok(GetIndexRequest { name })
     }
 

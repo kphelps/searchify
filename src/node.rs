@@ -1,6 +1,6 @@
 use crate::action_executor::ActionExecutor;
 use crate::clock::Clock;
-use crate::cluster_state::ClusterState;
+use crate::cluster_state::{ClusterState, ClusterStateUpdater};
 use crate::config::Config;
 use crate::gossip::GossipServer;
 use crate::key_value_state_machine::{KeyValueStateMachine, MetaStateEvent};
@@ -92,7 +92,7 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
     )?;
     let action_executor = ActionExecutor::new(node_router.clone());
     start_web(config, action_executor.clone())?;
-    start_master_process(
+    start_cluster_service(
         &config,
         &group_states,
         &storage_root,
@@ -101,6 +101,7 @@ fn build_system(config: &Config) -> Result<Inner, Error> {
         &node_router,
         &kv_raft_router,
         &clock,
+        &cluster_state,
     )?;
     Ok(Inner {
         _server: server,
@@ -123,7 +124,7 @@ fn get_raft_groups(engine: &StorageEngine) -> Result<Vec<RaftGroupMetaState>, Er
     Ok(out)
 }
 
-fn start_master_process(
+fn start_cluster_service(
     config: &Config,
     group_states: &[RaftGroupMetaState],
     storage_root: &Path,
@@ -132,19 +133,29 @@ fn start_master_process(
     node_router: &NodeRouterHandle,
     kv_raft_router: &RaftRouter<KeyValueStateMachine>,
     clock: &Clock,
+    cluster_state: &ClusterState,
 ) -> Result<(), Error> {
     let group_state = group_states[0].clone();
     let storage = RaftStorage::new(group_state, storage_engine.clone())?;
     let kv_engine = StorageEngine::new(&storage_root.join("kv"))?;
     let mut kv_state_machine = KeyValueStateMachine::new(kv_engine, clock.clone())?;
     let liveness_gossip = gossip_server.clone();
+
     let liveness_update_task = kv_state_machine
         .subscribe()
         .filter_map(|event| match event {
             MetaStateEvent::PeerUpdate(peer) => Some(peer),
+            _ => None,
         })
         .for_each(move |peer| liveness_gossip.update_node_liveness(peer));
     tokio::spawn(liveness_update_task);
+
+    let cluster_state_updater = ClusterStateUpdater::new(cluster_state.clone());
+    let cluster_state_update_task = kv_state_machine
+        .subscribe()
+        .for_each(move |event| Ok(cluster_state_updater.handle_event(event)));
+    tokio::spawn(cluster_state_update_task);
+
     let meta_raft = RaftClient::new(
         config.node_id,
         storage,

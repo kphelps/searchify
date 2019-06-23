@@ -1,7 +1,7 @@
 use crate::action_executor::ActionExecutor;
 use crate::actions::{self, Action};
 use crate::config::Config;
-use actix_web::*;
+use actix_web::{*, web::Payload};
 use failure::Error;
 use futures::prelude::*;
 use log::*;
@@ -20,12 +20,12 @@ where
     let path_string = action.path();
     let method = action.method();
     let func =
-        move |request: HttpRequest| -> Box<Future<Item = HttpResponse, Error = Error> + 'static> {
+        move |request: HttpRequest, payload: Payload| -> Box<Future<Item = HttpResponse, Error = Error> + 'static> {
             let path = web::Path::<P>::extract(&request).unwrap();
             let state = web::Data::<WebApi>::extract(&request).unwrap();
             let f = state
                 .action_executor
-                .execute_http(action.clone(), path, &request);
+                .execute_http(action.clone(), path, &request, payload);
             Box::new(f)
         };
     cfg.route(&path_string, web::method(method).to(func));

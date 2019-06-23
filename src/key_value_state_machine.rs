@@ -14,6 +14,7 @@ use futures::sync::oneshot::Sender;
 #[derive(Clone)]
 pub enum MetaStateEvent {
     PeerUpdate(PeerState),
+    IndexUpdate(String, Option<IndexState>),
 }
 
 pub struct KeyValueStateMachine {
@@ -86,12 +87,15 @@ impl KeyValueStateMachine {
         for shard in shards.iter_mut() {
             self.shards.create_shard(shard)?;
         }
+        self.event_emitter.emit(MetaStateEvent::IndexUpdate(index_state.name.clone(), Some(index_state)));
         Ok(())
     }
 
     fn delete_index(&mut self, request: DeleteIndexRequest) -> Result<(), Error> {
         let index_state = self.indices.delete(&request.get_name().to_string())?;
-        self.shards.delete_shards_for_index(index_state.id)
+        self.shards.delete_shards_for_index(index_state.id)?;
+        self.event_emitter.emit(MetaStateEvent::IndexUpdate(index_state.name, None));
+        Ok(())
     }
 
     fn liveness_heartbeat(&mut self, heartbeat: LivenessHeartbeat) -> Result<(), Error> {

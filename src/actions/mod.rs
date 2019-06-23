@@ -1,4 +1,4 @@
-use actix_web::{HttpRequest, HttpResponse};
+use actix_web::{HttpRequest, HttpResponse, web::Payload};
 use failure::Error;
 use futures::prelude::*;
 
@@ -35,7 +35,7 @@ pub trait Action: Copy {
 
     fn method(&self) -> actix_web::http::Method;
     fn path(&self) -> String;
-    fn parse_http(&self, path: Self::Path, request: &HttpRequest) -> Self::ParseFuture;
+    fn parse_http(&self, path: Self::Path, request: &HttpRequest, _payload: Payload) -> Self::ParseFuture;
     fn to_http_response(&self, response: Self::Response) -> HttpResponse;
     fn execute(
         &self,

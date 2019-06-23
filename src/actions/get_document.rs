@@ -1,5 +1,5 @@
 use super::{Action, ActionContext};
-use actix_web::{HttpRequest, HttpResponse};
+use actix_web::{HttpRequest, HttpResponse, web::Payload};
 use failure::Error;
 use futures::prelude::*;
 use serde::*;
@@ -45,6 +45,7 @@ impl Action for GetDocumentAction {
         &self,
         (name, id): (String, String),
         _request: &HttpRequest,
+        _payload: Payload,
     ) -> Result<GetDocumentRequest, Error> {
         Ok(GetDocumentRequest { name, id })
     }

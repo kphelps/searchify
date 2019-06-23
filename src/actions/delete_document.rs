@@ -1,5 +1,5 @@
 use super::{Action, ActionContext, ShardResultResponse};
-use actix_web::{HttpRequest, HttpResponse};
+use actix_web::{HttpRequest, HttpResponse, web::Payload};
 use failure::Error;
 use futures::prelude::*;
 use serde::*;
@@ -43,6 +43,7 @@ impl Action for DeleteDocumentAction {
         &self,
         (name, id): (String, String),
         _request: &HttpRequest,
+        _payload: Payload,
     ) -> Result<DeleteDocumentRequest, Error> {
         Ok(DeleteDocumentRequest { name, id })
     }

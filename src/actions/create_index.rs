@@ -1,6 +1,6 @@
 use super::{Action, ActionContext};
 use crate::mappings::Mappings;
-use actix_web::*;
+use actix_web::{*, web::Payload};
 use failure::Error;
 use futures::prelude::*;
 use serde::*;
@@ -45,9 +45,11 @@ impl Action for CreateIndexAction {
         "/{name}".to_string()
     }
 
-    fn parse_http(&self, name: String, request: &HttpRequest) -> Self::ParseFuture {
-        let f = web::Json::<CreateIndexBody>::extract(&request)
-            .map_err(|_| failure::err_msg("Failed to parse body"))
+    fn parse_http(&self, name: String, request: &HttpRequest, payload: Payload) -> Self::ParseFuture {
+        let s: Box<dyn Stream<Item = web::Bytes, Error = client::PayloadError> + 'static> = Box::new(payload);
+        let mut p = actix_web::dev::Payload::Stream(s);
+        let f = web::Json::<CreateIndexBody>::from_request(&request, &mut p)
+            .map_err(|e| failure::format_err!("Failed to parse body: {:?}", e))
             .map(|j| j.into_inner())
             .map(|body| CreateIndexRequest {
                 name,

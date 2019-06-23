@@ -535,7 +535,7 @@ where
     fn handle_conf_change_entry(&mut self, entry: &eraftpb::Entry) -> Result<eraftpb::ConfState, Error> {
         let cc = eraftpb::ConfChange::decode(&entry.data).expect("Valid protobuf");
 
-        info!("ConfChange: {:?}", cc);
+        debug!("ConfChange: {:?}", cc);
 
         match cc.get_change_type() {
             eraftpb::ConfChangeType::AddNode => {
@@ -555,14 +555,12 @@ where
             }
             eraftpb::ConfChangeType::FinalizeMembershipChange => {
                 if let Err(err) = self.raft_node.raft.finalize_membership_change(&cc) {
-                    error!("FinalizeMembershipChange error: {:?}", err);
+                    warn!("Finalizing membership change error: {:?}", err);
                 }
             }
         }
 
-        // TODO: callbacks?
         Ok(self.raft_node.raft.prs().configuration().clone().into())
-        // let x = self.raft_node.apply_conf_change(&cc).map_err(Error::from);
     }
 
     fn advance_raft(&mut self, ready: Ready) {

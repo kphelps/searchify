@@ -1,4 +1,4 @@
-use actix_web::{HttpRequest, HttpResponse, web::Path};
+use actix_web::{HttpRequest, HttpResponse, web::{Path, Payload}};
 
 struct BulkRequest {
     index: String,
@@ -55,7 +55,7 @@ impl Action for BulkAction {
         "/{name}/_bulk".to_string()
     }
 
-    fn parse_http(&self, index: String, request: &HttpRequest) -> Result<BulkRequest, Error> {
+    fn parse_http(&self, index: String, request: &HttpRequest, _payload: Payload) -> Result<BulkRequest, Error> {
         Ok(BulkRequest {
             index,
             operations: Vec::new()

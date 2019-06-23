@@ -1,5 +1,5 @@
 use super::{Action, ActionContext, Index};
-use actix_web::{HttpRequest, HttpResponse};
+use actix_web::{HttpRequest, HttpResponse, web::Payload};
 use failure::Error;
 use futures::prelude::*;
 use serde::*;
@@ -26,7 +26,7 @@ impl Action for ListIndicesAction {
         "/_cat/indices".to_string()
     }
 
-    fn parse_http(&self, _: (), _request: &HttpRequest) -> Result<(), Error> {
+    fn parse_http(&self, _: (), _request: &HttpRequest, _payload: Payload) -> Result<(), Error> {
         Ok(())
     }
 
