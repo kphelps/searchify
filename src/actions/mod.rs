@@ -18,6 +18,7 @@ mod search;
 pub use self::common::*;
 
 pub use self::action_context::ActionContext;
+pub use self::bulk::BulkAction;
 pub use self::create_index::CreateIndexAction;
 pub use self::delete_document::DeleteDocumentAction;
 pub use self::delete_index::DeleteIndexAction;

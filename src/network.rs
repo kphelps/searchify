@@ -216,6 +216,12 @@ impl Internal for InternalServer {
         let proposal = SearchStateMachine::propose_refresh(req, sender);
         propose_api(&self.search_raft_router, proposal, receiver, ctx, sink);
     }
+
+    fn bulk(&mut self, ctx: RpcContext, req: BulkRequest, sink: UnarySink<BulkResponse>) {
+        let (sender, receiver) = channel();
+        let proposal = SearchStateMachine::propose_bulk(req, sender);
+        propose_api(&self.search_raft_router, proposal, receiver, ctx, sink);
+    }
 }
 
 impl InternalServer {

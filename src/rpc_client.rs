@@ -13,11 +13,11 @@ use std::time::Duration;
 #[derive(Clone)]
 pub struct RpcClient {
     node_id: u64,
-    client: InternalClient,
+    pub client: InternalClient,
     gossip_client: GossipClient,
 }
 
-fn futurize<T>(
+pub fn futurize<T>(
     input: Result<ClientUnaryReceiver<T>, grpcio::Error>,
 ) -> impl Future<Item = T, Error = Error> {
     futures::future::result(input)
@@ -177,7 +177,7 @@ impl RpcClient {
         futurize_unit(self.client.refresh_async_opt(&request, self.options()))
     }
 
-    fn options(&self) -> CallOption {
+    pub fn options(&self) -> CallOption {
         CallOption::default()
             .wait_for_ready(true)
             .timeout(Duration::from_secs(3))

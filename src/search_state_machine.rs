@@ -34,6 +34,11 @@ impl RaftStateMachine for SearchStateMachine {
                 self.refresh()?;
                 true
             }
+            SearchEntry_oneof_operation::bulk(bulk) => {
+                log::info!("Bulk!");
+                // self.refresh()?;
+                false
+            }
         };
         Ok(committed)
     }
@@ -73,6 +78,14 @@ impl SearchStateMachine {
         operation.set_id(request.take_document_id());
         entry.set_add_document(operation);
         let observer = SimpleObserver::new(sender, |_: &Self| IndexDocumentResponse::new());
+        SimplePropose::new_for_group(request.shard_id, entry, observer)
+    }
+
+    pub fn propose_bulk(mut request: BulkRequest, sender: Sender<BulkResponse>) -> SimplePropose {
+        let mut entry = SearchEntry::new();
+        let mut operation = BulkEntry::new();
+        entry.set_bulk(operation);
+        let observer = SimpleObserver::new(sender, |_: &Self| BulkResponse::new());
         SimplePropose::new_for_group(request.shard_id, entry, observer)
     }
 

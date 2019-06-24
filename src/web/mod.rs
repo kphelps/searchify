@@ -39,6 +39,7 @@ fn register_actions(cfg: &mut web::ServiceConfig) {
     register_action(cfg, actions::DeleteDocumentAction);
     register_action(cfg, actions::GetDocumentAction);
     register_action(cfg, actions::SearchAction);
+    register_action(cfg, actions::BulkAction);
     register_action(cfg, actions::IndexDocumentAction);
     register_action(cfg, actions::RefreshAction);
     register_action(cfg, actions::CreateIndexAction);

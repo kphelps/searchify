@@ -19,6 +19,7 @@ service Internal {
   rpc DeleteDocument(DeleteDocumentRequest) returns (DeleteDocumentResponse) {}
   rpc Search(SearchRequest) returns (SearchResponse) {}
   rpc Refresh(RefreshRequest) returns (RefreshResponse) {}
+  rpc Bulk(BulkRequest) returns (BulkResponse) {}
 }
 
 message HelloRequest {
@@ -82,6 +83,7 @@ message SearchEntry {
     AddDocumentOperation add_document = 1;
     RefreshOperation refresh = 2;
     DeleteDocumentOperation delete_document = 3;
+    BulkEntry bulk = 4;
   }
 }
 
@@ -92,6 +94,17 @@ message AddDocumentOperation {
 
 message DeleteDocumentOperation {
   string id = 1;
+}
+
+message BulkEntry {
+  repeated BulkEntryItem operations = 1;
+}
+
+message BulkEntryItem {
+  oneof operation {
+    AddDocumentOperation add_document = 1;
+    DeleteDocumentOperation delete_document = 2;
+  }
 }
 
 message RefreshOperation {
@@ -283,4 +296,24 @@ message DeleteDocumentRequest {
 
 message DeleteDocumentResponse {
   bool success = 1;
+}
+
+enum BulkOpType {
+  INDEX = 0;
+  CREATE = 1;
+  UPDATE = 2;
+  DELETE = 3;
+}
+
+message BulkRequest {
+  uint64 shard_id = 1;
+  repeated BulkOperation operations = 2;
+}
+
+message BulkOperation {
+  BulkOpType op_type = 2;
+  bytes payload = 3;
+}
+
+message BulkResponse {
 }

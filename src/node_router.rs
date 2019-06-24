@@ -269,7 +269,7 @@ impl NodeRouter {
             })
     }
 
-    fn get_cached_index(&self, index_name: &str) -> Result<IndexState, Error> {
+    pub fn get_cached_index(&self, index_name: &str) -> Result<IndexState, Error> {
         self.cluster_state
             .upgrade()
             .ok_or_else(|| err_msg("Cluster state unavailable"))
@@ -305,6 +305,6 @@ impl std::ops::Deref for NodeRouterHandle {
 }
 
 pub struct ShardClient {
-    client: RpcClient,
-    shard: ShardState,
+    pub client: RpcClient,
+    pub shard: ShardState,
 }

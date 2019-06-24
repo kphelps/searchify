@@ -1,10 +1,6 @@
 #+TODO: TODO DOING | DONE
 
-need to have leader listen to gossip for new nodes
-when a new node is added and its node id isn't in the master set
-we should start adding a learner
-
-I think learners need to have their ID seeded in their persisted config
+!! Bug: create an index, then try to bulk to it. Fails!
 
 * Current Notes
   
@@ -16,7 +12,7 @@ I think learners need to have their ID seeded in their persisted config
 
 * Release Tasks
   
-** 0.1 [36%]
+** 0.1 [41%]
   :PROPERTIES:
   :COOKIE_DATA: todo recursive
   :END:
@@ -37,24 +33,26 @@ I think learners need to have their ID seeded in their persisted config
      CLOSED: [2019-01-21 Mon 09:35]
 **** DONE Delete
      CLOSED: [2019-01-24 Thu 22:27]
-**** TODO Bulk API
+**** DOING Bulk API
 **** TODO Cluster Health API
 **** TODO Proper errors
 **** TODO Index Exists
      - tower-web doesn't support HEAD. Need to implement it there.
 **** TODO Optimize Get(id)
-*** Clustering [3/7]
+*** Clustering [5/7]
 **** DONE Allow nodes to join without joining the master raft group
      CLOSED: [2019-01-20 Sun 11:28]
 **** TODO Allocate unallocated shards when a node joins the cluster
 **** DONE Detect when a node leaves the cluster
      CLOSED: [2019-01-20 Sun 10:29]
 **** TODO De-allocate shard when a node leaves the cluster
-**** TODO Remove inter-node polling
+**** DONE Remove inter-node polling
+     CLOSED: [2019-06-23 Sun 23:30]
      - Gossip shard/index routing information
 **** DONE Gossip infrastructure - Discovery
      CLOSED: [2019-01-18 Fri 08:10]
-**** TODO Cache shard routing information
+**** DONE Cache shard routing information
+     CLOSED: [2019-06-23 Sun 23:30]
      - Done for indices. Need to figure out when to refresh it and do it for shard-level routing
      - Update local cache from gossips
      - Check meta layer synchronously if cache missed / was wrong
@@ -90,6 +88,7 @@ I think learners need to have their ID seeded in their persisted config
 *** Tests [1/7]
 **** DONE Search Storage
      CLOSED: [2019-01-26 Sat 10:22]
+**** TODO Integration
 **** TODO Raft Storage
 **** TODO Node Router
 **** TODO Gossip
