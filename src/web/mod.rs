@@ -2,6 +2,7 @@ use crate::action_executor::ActionExecutor;
 use crate::actions::{self, Action};
 use crate::config::Config;
 use actix_web::{web::Payload, *};
+use actix_web::middleware::Logger;
 use failure::Error;
 use futures::prelude::*;
 use log::*;
@@ -50,7 +51,7 @@ pub fn start_web(config: &Config, action_executor: ActionExecutor) -> Result<(),
     let address: SocketAddr = format!("{}:{}", config.web.host, config.web.port).parse()?;
     let state = WebApi { action_executor };
 
-    let build_app = move || App::new().data(state.clone()).configure(register_actions);
+    let build_app = move || App::new().wrap(Logger::default()).data(state.clone()).configure(register_actions);
 
     std::thread::spawn(move || {
         info!("Starting API on {}", address);

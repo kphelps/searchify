@@ -35,8 +35,7 @@ impl RaftStateMachine for SearchStateMachine {
                 true
             }
             SearchEntry_oneof_operation::bulk(bulk) => {
-                log::info!("Bulk!");
-                // self.refresh()?;
+                self.bulk(bulk)?;
                 false
             }
         };
@@ -68,6 +67,20 @@ impl SearchStateMachine {
         self.storage.refresh()
     }
 
+    fn bulk(&mut self, request: BulkEntry) -> Result<(), Error> {
+        request.operations.into_iter().map(|item| {
+            match item.operation.unwrap() {
+                BulkEntryItem_oneof_operation::add_document(operation) => {
+                    self.add_document(operation)?;
+                }
+                BulkEntryItem_oneof_operation::delete_document(operation) => {
+                    self.delete_document(operation)?;
+                },
+            };
+            Ok(())
+        }).collect::<Result<(), Error>>()
+    }
+
     pub fn propose_add_document(
         mut request: IndexDocumentRequest,
         sender: Sender<IndexDocumentResponse>,
@@ -81,9 +94,41 @@ impl SearchStateMachine {
         SimplePropose::new_for_group(request.shard_id, entry, observer)
     }
 
-    pub fn propose_bulk(mut request: BulkRequest, sender: Sender<BulkResponse>) -> SimplePropose {
+    pub fn propose_bulk(request: BulkRequest, sender: Sender<BulkResponse>) -> SimplePropose {
         let mut entry = SearchEntry::new();
         let mut operation = BulkEntry::new();
+
+        let entries = request.operations.into_iter().map(|mut op| {
+            let mut entry = BulkEntryItem::new();
+            match op.get_op_type() {
+                BulkOpType::INDEX => {
+                    let mut add_doc = AddDocumentOperation::new();
+                    add_doc.set_id(op.take_document_id());
+                    add_doc.set_payload(String::from_utf8(op.take_payload()).unwrap());
+                    entry.set_add_document(add_doc);
+                },
+                BulkOpType::CREATE => {
+                    let mut add_doc = AddDocumentOperation::new();
+                    add_doc.set_id(op.take_document_id());
+                    add_doc.set_payload(String::from_utf8(op.take_payload()).unwrap());
+                    entry.set_add_document(add_doc);
+                },
+                BulkOpType::UPDATE => {
+                    let mut add_doc = AddDocumentOperation::new();
+                    add_doc.set_id(op.take_document_id());
+                    add_doc.set_payload(String::from_utf8(op.take_payload()).unwrap());
+                    entry.set_add_document(add_doc);
+                },
+                BulkOpType::DELETE => {
+                    let mut delete_doc = DeleteDocumentOperation::new();
+                    delete_doc.set_id(op.take_document_id());
+                    entry.set_delete_document(delete_doc);
+                },
+            };
+            entry
+        });
+        operation.set_operations(entries.collect());
+
         entry.set_bulk(operation);
         let observer = SimpleObserver::new(sender, |_: &Self| BulkResponse::new());
         SimplePropose::new_for_group(request.shard_id, entry, observer)

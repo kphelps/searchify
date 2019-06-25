@@ -311,6 +311,7 @@ message BulkRequest {
 }
 
 message BulkOperation {
+  string document_id = 1;
   BulkOpType op_type = 2;
   bytes payload = 3;
 }

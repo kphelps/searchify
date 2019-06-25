@@ -180,6 +180,6 @@ impl RpcClient {
     pub fn options(&self) -> CallOption {
         CallOption::default()
             .wait_for_ready(true)
-            .timeout(Duration::from_secs(3))
+            .timeout(Duration::from_secs(30))
     }
 }

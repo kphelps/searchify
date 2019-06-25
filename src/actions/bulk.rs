@@ -186,7 +186,6 @@ impl BulkAction {
                 if !left.is_empty() {
                     operations.push(&left)?;
                 }
-                log::info!("Bulk: {:?}", operations.payloads);
                 Ok(operations.payloads)
             });
         Box::new(f)
@@ -267,6 +266,7 @@ fn rpc_send(
         .map(|operation| {
             let mut op = proto::BulkOperation::new();
             op.set_op_type(operation.operation.proto_op_type());
+            op.set_document_id(operation.operation.document_id().to_string());
             if operation.payload.is_some() {
                 op.set_payload(operation.payload.unwrap().to_vec());
             }
