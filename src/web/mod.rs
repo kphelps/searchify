@@ -1,3 +1,6 @@
+mod metrics_middleware;
+
+use self::metrics_middleware::MetricsMiddleware;
 use crate::action_executor::ActionExecutor;
 use crate::actions::{self, Action};
 use crate::config::Config;
@@ -34,7 +37,13 @@ where
     cfg.route(&path_string, web::method(method).to(func));
 }
 
+fn metrics_endpoint() -> impl Responder {
+    crate::metrics::dump()
+}
+
 fn register_actions(cfg: &mut web::ServiceConfig) {
+    cfg.route("metrics", web::get().to(metrics_endpoint));
+
     register_action(cfg, actions::ListIndicesAction);
     register_action(cfg, actions::DeleteIndexAction);
     register_action(cfg, actions::DeleteDocumentAction);
@@ -51,7 +60,11 @@ pub fn start_web(config: &Config, action_executor: ActionExecutor) -> Result<(),
     let address: SocketAddr = format!("{}:{}", config.web.host, config.web.port).parse()?;
     let state = WebApi { action_executor };
 
-    let build_app = move || App::new().wrap(Logger::default()).data(state.clone()).configure(register_actions);
+    let build_app = move || App::new()
+        .wrap(MetricsMiddleware::default())
+        .wrap(Logger::default())
+        .data(state.clone())
+        .configure(register_actions);
 
     std::thread::spawn(move || {
         info!("Starting API on {}", address);

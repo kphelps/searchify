@@ -22,6 +22,7 @@ mod key_value_state_machine;
 mod keys;
 mod kv_index;
 mod mappings;
+mod metrics;
 mod network;
 mod node;
 mod node_router;

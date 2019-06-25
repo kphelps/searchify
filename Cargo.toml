@@ -5,6 +5,7 @@ authors = ["Kyle Phelps <kphelps@salsify.com>"]
 edition = "2018"
 
 [dependencies]
+actix-service = "*"
 actix-web = "1.0"
 base64 = "*"
 byteorder = "*"
@@ -18,6 +19,7 @@ futures = "0.1"
 futures-cpupool = "*"
 http = "*"
 hybrid-clocks = "*"
+lazy_static = "*"
 log = "*"
 prometheus = "*"
 protobuf = "*"

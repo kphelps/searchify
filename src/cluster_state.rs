@@ -1,6 +1,7 @@
 use crate::event_emitter::EventEmitter;
 use crate::key_value_state_machine::{KeyValueStateMachine, MetaStateEvent};
 use crate::proto::*;
+use log::*;
 use futures::sync::mpsc;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Weak};
@@ -94,15 +95,15 @@ impl ClusterStateUpdater {
     }
 
     pub fn handle_event(&self, event: MetaStateEvent) {
-        log::debug!("ClusterStateEvent: {:?}", event);
+        debug!("ClusterStateEvent: {:?}", event);
         match event {
             MetaStateEvent::IndexUpdate(name, maybe_index) => {
                 let mut state = self.cluster_state.inner.write().unwrap();
                 if let Some(index) = maybe_index {
-                    log::info!("Index updated: {}", name);
+                    info!("Index updated: {}", name);
                     state.indices.insert(name, index.clone());
                 } else {
-                    log::info!("Index deleted: {}", name);
+                    info!("Index deleted: {}", name);
                     state.indices.remove(&name);
                 }
             }
@@ -115,7 +116,7 @@ impl ClusterStateUpdater {
                         .find(|peer| peer.id == state.node_id)
                         .is_some()
                     {
-                        log::info!("Shard allocated: {}", id);
+                        info!("Shard allocated: {}", id);
                         state.shards.insert(id, shard.clone());
                         state
                             .event_emitter
@@ -123,7 +124,7 @@ impl ClusterStateUpdater {
                     }
                 } else {
                     if let Some(shard) = state.shards.remove(&id) {
-                        log::info!("Shard deleted: {}", shard.id);
+                        info!("Shard deleted: {}", shard.id);
                     }
                 }
             }
