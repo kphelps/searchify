@@ -4,7 +4,7 @@ use self::metrics_middleware::MetricsMiddleware;
 use crate::action_executor::ActionExecutor;
 use crate::actions::{self, Action};
 use crate::config::Config;
-use actix_web::{web::Payload, *};
+use actix_web::*;
 use actix_web::middleware::Logger;
 use failure::Error;
 use futures::prelude::*;

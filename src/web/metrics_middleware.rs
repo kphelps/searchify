@@ -8,12 +8,6 @@ use futures::prelude::*;
 #[derive(Clone, Default)]
 pub struct MetricsMiddleware;
 
-impl MetricsMiddleware {
-    pub fn new() -> MetricsMiddleware {
-        MetricsMiddleware::default()
-    }
-}
-
 impl<S, B> Transform<S> for MetricsMiddleware
 where
     S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
@@ -53,7 +47,7 @@ where
 
     fn call(&mut self, req: ServiceRequest) -> Self::Future {
         let timer = WEB_REQUEST_HISTOGRAM.with_label_values(&["all"]).start_timer();
-        Box::new(self.service.call(req).map(move |mut res| {
+        Box::new(self.service.call(req).map(move |res| {
             timer.observe_duration();
             res
         }))

@@ -9,7 +9,7 @@ URL = 'http://localhost'
 PORTS = [8080, 8081, 8082]
 
 LOOPS = 10
-BULK_SIZE = 1
+BULK_SIZE = 100
 THREADS = 8
 INDEX_NAME = 'hello-world'
 

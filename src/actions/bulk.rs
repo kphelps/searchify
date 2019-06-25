@@ -274,5 +274,5 @@ fn rpc_send(
         })
         .collect::<Vec<proto::BulkOperation>>();
     request.set_operations(proto_ops.into());
-    futurize(client.client.bulk_async_opt(&request, client.options())).map(|_| BulkResponse {})
+    futurize("bulk", client.client.bulk_async_opt(&request, client.options())).map(|_| BulkResponse {})
 }
