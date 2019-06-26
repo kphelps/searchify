@@ -44,4 +44,9 @@ lazy_static! {
         "Bucketed histogram of http requests",
         &["type"]
     ).unwrap();
+
+    pub static ref RAFT_TICK_HISTOGRAM: Histogram = register_histogram!(
+        "searchify_raft_tick_seconds",
+        "Bucketed histogram of raft ticks"
+    ).unwrap();
 }

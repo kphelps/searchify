@@ -1,4 +1,5 @@
 use crate::event_emitter::EventEmitter;
+use crate::metrics::RAFT_TICK_HISTOGRAM;
 use crate::node_router::NodeRouterHandle;
 use crate::proto::EntryContext;
 use crate::raft_router::RaftRouter;
@@ -311,7 +312,12 @@ where
 
     fn handle_event(&mut self, event: StateEvent<T>) -> Result<(), Error> {
         match event {
-            StateEvent::Tick => self.raft_tick(),
+            StateEvent::Tick => {
+                let timer = RAFT_TICK_HISTOGRAM.start_timer();
+                let out = self.raft_tick();
+                timer.observe_duration();
+                out
+            },
             StateEvent::Event(event) => match event {
                 RaftStateMessage::Message(message) => {
                     self.raft_node.step(message.message)?;
