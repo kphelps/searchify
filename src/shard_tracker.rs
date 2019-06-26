@@ -38,10 +38,6 @@ impl ShardTracker {
         Ok(())
     }
 
-    pub fn get_shards_assigned_to_node(&self, node_id: u64) -> Vec<ShardState> {
-        self.by_node.get(&node_id, &self.shards)
-    }
-
     pub fn get_shards_for_index(&self, index_id: u64) -> Vec<ShardState> {
         self.by_index.get(&index_id, &self.shards)
     }

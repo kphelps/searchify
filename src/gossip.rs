@@ -159,11 +159,6 @@ impl GossipState {
         }
     }
 
-    pub fn subscribe(&self) -> mpsc::Receiver<PeerStateEvent> {
-        let mut locked = self.inner.write().unwrap();
-        locked.event_emitter.subscribe()
-    }
-
     fn get_current(&self) -> GossipData {
         let locked = self.inner.read().unwrap();
         let mut gossip = locked.current.clone();

@@ -1,7 +1,7 @@
-use actix_service::{Service, Transform};
-use actix_web::*;
-use actix_web::dev::{ServiceRequest, ServiceResponse};
 use crate::metrics::WEB_REQUEST_HISTOGRAM;
+use actix_service::{Service, Transform};
+use actix_web::dev::{ServiceRequest, ServiceResponse};
+use actix_web::*;
 use futures::future::{ok, FutureResult};
 use futures::prelude::*;
 
@@ -21,9 +21,7 @@ where
     type Future = FutureResult<Self::Transform, Self::InitError>;
 
     fn new_transform(&self, service: S) -> Self::Future {
-        ok(DefaultMetricsMiddleware {
-            service,
-        })
+        ok(DefaultMetricsMiddleware { service })
     }
 }
 
@@ -46,7 +44,9 @@ where
     }
 
     fn call(&mut self, req: ServiceRequest) -> Self::Future {
-        let timer = WEB_REQUEST_HISTOGRAM.with_label_values(&["all"]).start_timer();
+        let timer = WEB_REQUEST_HISTOGRAM
+            .with_label_values(&["all"])
+            .start_timer();
         Box::new(self.service.call(req).map(move |res| {
             timer.observe_duration();
             res

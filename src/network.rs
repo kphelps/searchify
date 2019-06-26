@@ -1,7 +1,7 @@
 use crate::clock::Clock;
 use crate::key_value_state_machine::KeyValueStateMachine;
 use crate::mappings::Mappings;
-use crate::metrics::{GRPC_SERVER_HISTOGRAM, GRPC_SERVER_ERROR_COUNTER};
+use crate::metrics::{GRPC_SERVER_ERROR_COUNTER, GRPC_SERVER_HISTOGRAM};
 use crate::proto::*;
 use crate::raft::{RaftMessageReceived, RaftPropose, RaftStateMachine};
 use crate::raft_router::RaftRouter;
@@ -12,7 +12,8 @@ use futures::{
     sync::oneshot::{channel, Receiver},
 };
 use grpcio::{
-    ChannelBuilder, EnvBuilder, RpcContext, RpcStatus, RpcStatusCode, Server, ServerBuilder, Service, UnarySink,
+    ChannelBuilder, EnvBuilder, RpcContext, RpcStatus, RpcStatusCode, Server, ServerBuilder,
+    Service, UnarySink,
 };
 use log::*;
 use prost::Message;
@@ -39,7 +40,14 @@ impl Internal for InternalServer {
         let (sender, receiver) = channel();
         let expires_at = self.clock.for_expiration_in(Duration::from_secs(15));
         let proposal = KeyValueStateMachine::propose_heartbeat(req, expires_at, sender);
-        propose_api("heartbeat", &self.kv_raft_router, proposal, receiver, ctx, sink);
+        propose_api(
+            "heartbeat",
+            &self.kv_raft_router,
+            proposal,
+            receiver,
+            ctx,
+            sink,
+        );
     }
 
     fn raft_message(
@@ -80,7 +88,14 @@ impl Internal for InternalServer {
         } else {
             let (sender, receiver) = channel();
             let proposal = KeyValueStateMachine::propose_create_index(req, sender);
-            propose_api("create_index", &self.kv_raft_router, proposal, receiver, ctx, sink);
+            propose_api(
+                "create_index",
+                &self.kv_raft_router,
+                proposal,
+                receiver,
+                ctx,
+                sink,
+            );
         }
     }
 
@@ -92,7 +107,14 @@ impl Internal for InternalServer {
     ) {
         let (sender, receiver) = channel();
         let proposal = KeyValueStateMachine::propose_delete_index(req, sender);
-        propose_api("delete_index", &self.kv_raft_router, proposal, receiver, ctx, sink);
+        propose_api(
+            "delete_index",
+            &self.kv_raft_router,
+            proposal,
+            receiver,
+            ctx,
+            sink,
+        );
     }
 
     fn get_index(&mut self, ctx: RpcContext, req: GetIndexRequest, sink: UnarySink<IndexState>) {
@@ -101,7 +123,14 @@ impl Internal for InternalServer {
             sm.index(&req.name)
                 .and_then(|option| option.ok_or_else(|| err_msg("Not found")))
         });
-        propose_api_result("get_index", &self.kv_raft_router, proposal, receiver, ctx, sink);
+        propose_api_result(
+            "get_index",
+            &self.kv_raft_router,
+            proposal,
+            receiver,
+            ctx,
+            sink,
+        );
     }
 
     fn list_indices(
@@ -117,31 +146,14 @@ impl Internal for InternalServer {
             response.set_indices(indices.into());
             response
         });
-        propose_api("list_indices", &self.kv_raft_router, proposal, receiver, ctx, sink);
-    }
-
-    fn list_nodes(
-        &mut self,
-        ctx: RpcContext,
-        _req: ListNodesRequest,
-        sink: UnarySink<ListNodesResponse>,
-    ) {
-        let (sender, receiver) = channel();
-        let proposal = KeyValueStateMachine::read_operation(sender, move |sm| {
-            let mut response = ListNodesResponse::new();
-            let peer_states = sm.live_nodes();
-            let nodes = peer_states
-                .into_iter()
-                .map(|peer_state| {
-                    let mut node_state = NodeState::new();
-                    node_state.set_peer_state(peer_state);
-                    node_state
-                })
-                .collect();
-            response.set_nodes(nodes);
-            Ok(response)
-        });
-        propose_api_result("list_nodes", &self.kv_raft_router, proposal, receiver, ctx, sink);
+        propose_api(
+            "list_indices",
+            &self.kv_raft_router,
+            proposal,
+            receiver,
+            ctx,
+            sink,
+        );
     }
 
     fn health(&mut self, ctx: RpcContext, _req: HealthRequest, sink: UnarySink<HealthResponse>) {
@@ -153,22 +165,14 @@ impl Internal for InternalServer {
             response.fully_replicated = true;
             response
         });
-        propose_api("health", &self.kv_raft_router, proposal, receiver, ctx, sink);
-    }
-
-    fn list_shards(
-        &mut self,
-        ctx: RpcContext,
-        req: ListShardsRequest,
-        sink: UnarySink<ListShardsResponse>,
-    ) {
-        let (sender, receiver) = channel();
-        let proposal = KeyValueStateMachine::read_operation(sender, move |sm| {
-            let mut response = ListShardsResponse::new();
-            response.set_shards(sm.shards_for_node(req.get_peer().get_id())?.into());
-            Ok(response)
-        });
-        propose_api_result("list_shards", &self.kv_raft_router, proposal, receiver, ctx, sink);
+        propose_api(
+            "health",
+            &self.kv_raft_router,
+            proposal,
+            receiver,
+            ctx,
+            sink,
+        );
     }
 
     fn index_document(
@@ -179,7 +183,14 @@ impl Internal for InternalServer {
     ) {
         let (sender, receiver) = channel();
         let proposal = SearchStateMachine::propose_add_document(req, sender);
-        propose_api("index_document", &self.search_raft_router, proposal, receiver, ctx, sink);
+        propose_api(
+            "index_document",
+            &self.search_raft_router,
+            proposal,
+            receiver,
+            ctx,
+            sink,
+        );
     }
 
     fn get_document(
@@ -190,7 +201,14 @@ impl Internal for InternalServer {
     ) {
         let (sender, receiver) = channel();
         let proposal = SearchStateMachine::get_document(req, sender);
-        propose_api_result("get_document", &self.search_raft_router, proposal, receiver, ctx, sink);
+        propose_api_result(
+            "get_document",
+            &self.search_raft_router,
+            proposal,
+            receiver,
+            ctx,
+            sink,
+        );
     }
 
     fn delete_document(
@@ -201,25 +219,53 @@ impl Internal for InternalServer {
     ) {
         let (sender, receiver) = channel();
         let proposal = SearchStateMachine::propose_delete_document(req, sender);
-        propose_api("delete_document", &self.search_raft_router, proposal, receiver, ctx, sink);
+        propose_api(
+            "delete_document",
+            &self.search_raft_router,
+            proposal,
+            receiver,
+            ctx,
+            sink,
+        );
     }
 
     fn search(&mut self, ctx: RpcContext, req: SearchRequest, sink: UnarySink<SearchResponse>) {
         let (sender, receiver) = channel();
         let proposal = SearchStateMachine::search(req, sender);
-        propose_api_result("search", &self.search_raft_router, proposal, receiver, ctx, sink);
+        propose_api_result(
+            "search",
+            &self.search_raft_router,
+            proposal,
+            receiver,
+            ctx,
+            sink,
+        );
     }
 
     fn refresh(&mut self, ctx: RpcContext, req: RefreshRequest, sink: UnarySink<RefreshResponse>) {
         let (sender, receiver) = channel();
         let proposal = SearchStateMachine::propose_refresh(req, sender);
-        propose_api("refresh", &self.search_raft_router, proposal, receiver, ctx, sink);
+        propose_api(
+            "refresh",
+            &self.search_raft_router,
+            proposal,
+            receiver,
+            ctx,
+            sink,
+        );
     }
 
     fn bulk(&mut self, ctx: RpcContext, req: BulkRequest, sink: UnarySink<BulkResponse>) {
         let (sender, receiver) = channel();
         let proposal = SearchStateMachine::propose_bulk(req, sender);
-        propose_api("bulk", &self.search_raft_router, proposal, receiver, ctx, sink);
+        propose_api(
+            "bulk",
+            &self.search_raft_router,
+            proposal,
+            receiver,
+            ctx,
+            sink,
+        );
     }
 }
 
@@ -278,7 +324,9 @@ where
     I: Send + 'static,
     E: Into<Error> + Send + Sync,
 {
-    let timer = GRPC_SERVER_HISTOGRAM.with_label_values(&[name]).start_timer();
+    let timer = GRPC_SERVER_HISTOGRAM
+        .with_label_values(&[name])
+        .start_timer();
     let error_counter = GRPC_SERVER_ERROR_COUNTER.with_label_values(&[name]);
     let f = f.map_err(|e| e.into()).then(|out| match out {
         Ok(value) => sink.success(value).map_err(Error::from),
@@ -287,13 +335,10 @@ where
             sink.fail(status).map_err(Error::from)
         }
     });
-    ctx.spawn(
-        f.map(|_| timer.observe_duration())
-            .map_err(move |err| {
-                error_counter.inc();
-                error!("Failed to handle RPC: {:?}", err);
-            }),
-    );
+    ctx.spawn(f.map(|_| timer.observe_duration()).map_err(move |err| {
+        error_counter.inc();
+        error!("Failed to handle RPC: {:?}", err);
+    }));
 }
 
 pub fn start_rpc_server(services: Vec<Service>, _node_id: u64, port: u16) -> Result<Server, Error> {

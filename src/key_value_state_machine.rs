@@ -10,6 +10,7 @@ use crate::storage_engine::StorageEngine;
 use failure::Error;
 use futures::sync::mpsc;
 use futures::sync::oneshot::Sender;
+use log::*;
 
 #[derive(Clone, Debug)]
 pub enum MetaStateEvent {
@@ -110,7 +111,7 @@ impl KeyValueStateMachine {
     }
 
     fn liveness_heartbeat(&mut self, heartbeat: LivenessHeartbeat) -> Result<(), Error> {
-        log::trace!("Heartbeat from: {}", heartbeat.get_peer().id);
+        trace!("Heartbeat from: {}", heartbeat.get_peer().id);
         let mut peer_state = PeerState::new();
         peer_state.peer = heartbeat.peer;
         // TODO: check liveness?
@@ -187,10 +188,6 @@ impl KeyValueStateMachine {
                 index_state
             })
             .collect()
-    }
-
-    pub fn shards_for_node(&self, node: u64) -> Result<Vec<ShardState>, Error> {
-        Ok(self.shards.get_shards_assigned_to_node(node))
     }
 
     pub fn read_operation<F, R>(sender: Sender<R>, f: F) -> SimplePropose

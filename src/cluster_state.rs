@@ -1,8 +1,8 @@
 use crate::event_emitter::EventEmitter;
 use crate::key_value_state_machine::{KeyValueStateMachine, MetaStateEvent};
 use crate::proto::*;
-use log::*;
 use futures::sync::mpsc;
+use log::*;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Weak};
 

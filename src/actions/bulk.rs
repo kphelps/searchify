@@ -1,18 +1,16 @@
 use super::{Action, ActionContext};
 use crate::proto;
 use crate::rpc_client::{futurize, RpcClient};
-use actix_web::{error::PayloadError, web::Payload, HttpRequest, HttpResponse};
+use actix_web::{web::Payload, HttpRequest, HttpResponse};
 use bytes::Bytes;
 use failure::Error;
 use futures::prelude::*;
-use futures::sync::mpsc;
 use serde::Deserialize;
 use serde::Serialize;
-use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 
 pub struct BulkRequest {
-    index: String,
+    // index: String,
     payload: Payload,
 }
 
@@ -57,10 +55,10 @@ impl BulkOperation {
 
     fn proto_op_type(&self) -> proto::BulkOpType {
         match self {
-            BulkOperation::Index(inner) => proto::BulkOpType::INDEX,
-            BulkOperation::Create(inner) => proto::BulkOpType::CREATE,
-            BulkOperation::Update(inner) => proto::BulkOpType::UPDATE,
-            BulkOperation::Delete(inner) => proto::BulkOpType::DELETE,
+            BulkOperation::Index(_) => proto::BulkOpType::INDEX,
+            BulkOperation::Create(_) => proto::BulkOpType::CREATE,
+            BulkOperation::Update(_) => proto::BulkOpType::UPDATE,
+            BulkOperation::Delete(_) => proto::BulkOpType::DELETE,
         }
     }
 
@@ -135,14 +133,14 @@ impl Action for BulkAction {
 
     fn parse_http(
         &self,
-        index: String,
+        _index: String,
         _request: &HttpRequest,
         payload: Self::Payload,
     ) -> Result<BulkRequest, Error> {
-        Ok(BulkRequest { index, payload })
+        Ok(BulkRequest { payload })
     }
 
-    fn to_http_response(&self, response: BulkResponse) -> HttpResponse {
+    fn to_http_response(&self, _response: BulkResponse) -> HttpResponse {
         HttpResponse::NoContent().finish()
     }
 
@@ -224,7 +222,7 @@ fn send_for_index(
                 .map(|(shard_id, batch)| rpc_send(batch.client, shard_id, batch.operations));
             futures::future::join_all(fs)
         })
-        .and_then(|responses| Ok(BulkResponse {}));
+        .and_then(|_responses| Ok(BulkResponse {}));
     Box::new(f)
 }
 
@@ -274,5 +272,9 @@ fn rpc_send(
         })
         .collect::<Vec<proto::BulkOperation>>();
     request.set_operations(proto_ops.into());
-    futurize("bulk", client.client.bulk_async_opt(&request, client.options())).map(|_| BulkResponse {})
+    futurize(
+        "bulk",
+        client.client.bulk_async_opt(&request, client.options()),
+    )
+    .map(|_| BulkResponse {})
 }

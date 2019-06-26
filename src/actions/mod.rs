@@ -1,4 +1,4 @@
-use actix_web::{web::Payload, HttpRequest, HttpResponse};
+use actix_web::{HttpRequest, HttpResponse};
 use failure::Error;
 use futures::prelude::*;
 

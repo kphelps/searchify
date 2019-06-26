@@ -68,17 +68,21 @@ impl SearchStateMachine {
     }
 
     fn bulk(&mut self, request: BulkEntry) -> Result<(), Error> {
-        request.operations.into_iter().map(|item| {
-            match item.operation.unwrap() {
-                BulkEntryItem_oneof_operation::add_document(operation) => {
-                    self.add_document(operation)?;
-                }
-                BulkEntryItem_oneof_operation::delete_document(operation) => {
-                    self.delete_document(operation)?;
-                },
-            };
-            Ok(())
-        }).collect::<Result<(), Error>>()
+        request
+            .operations
+            .into_iter()
+            .map(|item| {
+                match item.operation.unwrap() {
+                    BulkEntryItem_oneof_operation::add_document(operation) => {
+                        self.add_document(operation)?;
+                    }
+                    BulkEntryItem_oneof_operation::delete_document(operation) => {
+                        self.delete_document(operation)?;
+                    }
+                };
+                Ok(())
+            })
+            .collect::<Result<(), Error>>()
     }
 
     pub fn propose_add_document(
@@ -106,24 +110,24 @@ impl SearchStateMachine {
                     add_doc.set_id(op.take_document_id());
                     add_doc.set_payload(String::from_utf8(op.take_payload()).unwrap());
                     entry.set_add_document(add_doc);
-                },
+                }
                 BulkOpType::CREATE => {
                     let mut add_doc = AddDocumentOperation::new();
                     add_doc.set_id(op.take_document_id());
                     add_doc.set_payload(String::from_utf8(op.take_payload()).unwrap());
                     entry.set_add_document(add_doc);
-                },
+                }
                 BulkOpType::UPDATE => {
                     let mut add_doc = AddDocumentOperation::new();
                     add_doc.set_id(op.take_document_id());
                     add_doc.set_payload(String::from_utf8(op.take_payload()).unwrap());
                     entry.set_add_document(add_doc);
-                },
+                }
                 BulkOpType::DELETE => {
                     let mut delete_doc = DeleteDocumentOperation::new();
                     delete_doc.set_id(op.take_document_id());
                     entry.set_delete_document(delete_doc);
-                },
+                }
             };
             entry
         });

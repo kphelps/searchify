@@ -1,7 +1,7 @@
 use super::{Action, ActionContext, ShardResultResponse};
 use crate::proto::MergedSearchResponse;
 use crate::query_api::SearchQuery;
-use actix_web::{web::Payload, *};
+use actix_web::*;
 use failure::Error;
 use futures::prelude::*;
 use serde::*;

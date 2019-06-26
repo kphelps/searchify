@@ -1,6 +1,6 @@
 use super::{Action, ActionContext};
 use crate::mappings::Mappings;
-use actix_web::{web::Payload, *};
+use actix_web::*;
 use failure::Error;
 use futures::prelude::*;
 use serde::*;
@@ -49,7 +49,7 @@ impl Action for CreateIndexAction {
     fn parse_http(
         &self,
         name: String,
-        request: &HttpRequest,
+        _request: &HttpRequest,
         body: Self::Payload,
     ) -> Self::ParseFuture {
         let body = body.into_inner();

@@ -104,10 +104,6 @@ impl NodeRouter {
         self.with_leader_client(move |client| client.list_indices())
     }
 
-    pub fn list_shards(&self, node_id: u64) -> impl Future<Item = Vec<ShardState>, Error = Error> {
-        self.with_leader_client(move |client| client.list_shards(node_id))
-    }
-
     pub fn send_heartbeat(&self) -> impl Future<Item = (), Error = Error> {
         self.with_leader_client(|client| client.heartbeat())
     }

@@ -4,7 +4,7 @@ use crate::proto::{ApplyState, Peer, RaftGroupMetaState, RaftGroupType, RaftLoca
 use crate::storage_engine::{MessageWriteBatch, StorageEngine};
 use byteorder::{BigEndian, ByteOrder};
 use failure::Error;
-use log::info;
+use log::*;
 use protobuf::Message;
 use raft::{
     eraftpb::{ConfState, Entry, HardState, Snapshot},

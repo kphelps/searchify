@@ -35,7 +35,7 @@ impl Action for IndexDocumentAction {
     fn parse_http(
         &self,
         (name, id): (String, String),
-        request: &HttpRequest,
+        _request: &HttpRequest,
         document: Self::Payload,
     ) -> Self::ParseFuture {
         Ok(IndexDocumentRequest {

@@ -11,8 +11,6 @@ service Internal {
   rpc DeleteIndex(DeleteIndexRequest) returns (EmptyResponse) {}
   rpc GetIndex(GetIndexRequest) returns (IndexState) {}
   rpc ListIndices(ListIndicesRequest) returns (ListIndicesResponse) {}
-  rpc ListNodes(ListNodesRequest) returns (ListNodesResponse) {}
-  rpc ListShards(ListShardsRequest) returns (ListShardsResponse) {}
 
   rpc IndexDocument(IndexDocumentRequest) returns (IndexDocumentResponse) {}
   rpc GetDocument(GetDocumentRequest) returns (GetDocumentResponse) {}
@@ -202,13 +200,6 @@ message NodeState {
   PeerState peer_state = 1;
 }
 
-message ListNodesRequest {
-}
-
-message ListNodesResponse {
-  repeated NodeState nodes = 1;
-}
-
 message Liveness {
   Timestamp expires_at = 1;
 }
@@ -224,14 +215,6 @@ message HealthRequest {
 message HealthResponse {
   bool available = 1;
   bool fully_replicated = 2;
-}
-
-message ListShardsRequest {
-  Peer peer = 1;
-}
-
-message ListShardsResponse {
-  repeated ShardState shards = 1;
 }
 
 message SequenceState {

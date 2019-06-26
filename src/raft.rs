@@ -317,7 +317,7 @@ where
                 let out = self.raft_tick();
                 timer.observe_duration();
                 out
-            },
+            }
             StateEvent::Event(event) => match event {
                 RaftStateMessage::Message(message) => {
                     self.raft_node.step(message.message)?;
@@ -352,7 +352,7 @@ where
         let _ = self.compact();
         self.update_leader_id();
         self.check_for_role_change();
-        self.propose_membership_changes();
+        self.propose_membership_changes()?;
         Ok(())
     }
 

@@ -1,7 +1,6 @@
 use crate::raft::{RaftClient, RaftMessageReceived, RaftPropose, RaftStateMachine};
 use failure::{format_err, Error};
 use futures::{future, prelude::*};
-use log::*;
 use std::clone::Clone;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};

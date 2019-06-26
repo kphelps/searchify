@@ -1,6 +1,6 @@
 use clap::{App, Arg};
 use failure::Error;
-use log::error;
+use log::*;
 
 #[macro_use]
 mod storage_engine;
@@ -43,7 +43,10 @@ mod version_tracker;
 mod web;
 
 fn main() {
-    std::env::set_var("RUST_LOG", "actix_web=info,searchify=info,raft=debug,tantivy=warn");
+    std::env::set_var(
+        "RUST_LOG",
+        "actix_web=info,searchify=info,raft=debug,tantivy=warn",
+    );
     env_logger::init();
     if let Err(err) = start() {
         error!("Failure: {}", err);

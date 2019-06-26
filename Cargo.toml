@@ -36,6 +36,7 @@ tokio-dns-unofficial = "*"
 tokio-retry = "*"
 tokio-signal = "*"
 tokio-timer = "*"
+tower-grpc = { version = "*", features = ["tower-hyper"] }
 uuid = "*"
 
 [dependencies.rocksdb]
@@ -43,6 +44,7 @@ git = "https://github.com/pingcap/rust-rocksdb.git"
 
 [build-dependencies]
 protoc-grpcio = "1.0"
+tower-grpc-build = { version = "*", features = ["tower-hyper"] }
 
 [dev-dependencies]
 tempfile = "*"
