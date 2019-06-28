@@ -45,7 +45,7 @@ mod web;
 fn main() {
     std::env::set_var(
         "RUST_LOG",
-        "actix_web=info,searchify=info,raft=debug,tantivy=warn",
+        "actix_web=info,searchify=info,raft=info,tantivy=warn",
     );
     env_logger::init();
     if let Err(err) = start() {

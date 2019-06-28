@@ -75,9 +75,9 @@ impl NodeRouter {
         &self,
         message: raft::eraftpb::Message,
         raft_group_id: u64,
-    ) -> impl Future<Item = (), Error = Error> {
-        future::result(self.peer(message.to))
-            .and_then(move |peer| peer.raft_message(&message, raft_group_id))
+    ) {
+        self.peer(message.to)
+            .map(move |peer| peer.raft_message(&message, raft_group_id));
     }
 
     pub fn create_index(

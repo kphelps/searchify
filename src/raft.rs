@@ -315,11 +315,15 @@ where
             StateEvent::Tick => {
                 let timer = RAFT_TICK_HISTOGRAM.start_timer();
                 let out = self.raft_tick();
+                if let Err(ref err) = out {
+                    error!("Error in raft loop: {}", err);
+                }
                 timer.observe_duration();
                 out
             }
             StateEvent::Event(event) => match event {
                 RaftStateMessage::Message(message) => {
+                    debug!("Step: {:?}", message.message);
                     self.raft_node.step(message.message)?;
                     Ok(())
                 }
@@ -402,9 +406,6 @@ where
     }
 
     fn propose(&mut self, context: Vec<u8>, data: Vec<u8>) -> Result<(), Error> {
-        if self.raft_group_id != 0 {
-            trace!("Propose({}, {})", context.len(), data.len());
-        }
         self.raft_node.propose(context, data).map_err(|e| e.into())
     }
 
@@ -413,10 +414,12 @@ where
         let id = rand::random::<u64>();
         let mut ctx = EntryContext::new();
         ctx.id = id;
+        debug!("[{}] Proposed", ctx.id);
         let ctx_bytes = ctx.write_to_bytes()?;
         self.observers.insert(id, m.observer);
         let result = self.propose(ctx_bytes, data);
         if result.is_err() {
+            error!("[{}] proposal failed", ctx.id);
             self.observers.remove(&id);
         }
         result
@@ -493,11 +496,7 @@ where
 
     fn send_messages(&self, ready: &mut Ready) {
         for message in ready.messages.drain(..) {
-            let f = self
-                .node_router
-                .route_raft_message(message, self.raft_group_id)
-                .map_err(|e| debug!("Error sending raft message: {}", e));
-            tokio::spawn(f);
+            self.node_router.route_raft_message(message, self.raft_group_id);
         }
     }
 

@@ -6,13 +6,21 @@ use crate::proto::gossip_grpc::*;
 use crate::proto::*;
 use failure::Error;
 use futures::prelude::*;
+use futures::sync::mpsc;
 use grpcio::{CallOption, ChannelBuilder, ClientUnaryReceiver, EnvBuilder};
+use log::*;
 use protobuf::Message;
 use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Clone)]
 pub struct RpcClient {
+    inner: Arc<RpcClientInner>,
+    sender: mpsc::UnboundedSender<SearchifyRaftMessage>,
+}
+
+#[derive(Clone)]
+pub struct RpcClientInner {
     node_id: u64,
     pub client: InternalClient,
     gossip_client: GossipClient,
@@ -57,12 +65,38 @@ impl RpcClient {
     pub fn new(node_id: u64, address: &str) -> Self {
         let env = Arc::new(EnvBuilder::new().build());
         let channel = ChannelBuilder::new(env).connect(address);
+        let (sender, receiver) = mpsc::unbounded();
 
-        Self {
+        let inner = RpcClientInner {
             node_id,
             client: InternalClient::new(channel.clone()),
             gossip_client: GossipClient::new(channel),
-        }
+        };
+        inner.clone().run_raft_sender(receiver);
+        let client = Self {
+            inner: Arc::new(inner),
+            sender,
+        };
+        client
+    }
+
+    pub fn raft_message(
+        &self,
+        message: &raft::eraftpb::Message,
+        raft_group_id: u64,
+    ) {
+        let mut request = SearchifyRaftMessage::new();
+        request.wrapped_message = message.write_to_bytes().unwrap();
+        request.raft_group_id = raft_group_id;
+        self.sender.unbounded_send(request).unwrap();
+    }
+}
+
+impl RpcClientInner {
+    fn run_raft_sender(self, receiver: mpsc::UnboundedReceiver<SearchifyRaftMessage>) {
+        let f = receiver
+            .for_each(move |request| self.send_raft_message(request).map_err(|err| error!("Error sending raft message: {}", err)));
+        tokio::spawn(f);
     }
 
     pub fn gossip(&self, data: &GossipData) -> impl Future<Item = GossipData, Error = Error> {
@@ -72,14 +106,10 @@ impl RpcClient {
         )
     }
 
-    pub fn raft_message(
+    fn send_raft_message(
         &self,
-        message: &raft::eraftpb::Message,
-        raft_group_id: u64,
+        request: SearchifyRaftMessage,
     ) -> impl Future<Item = (), Error = Error> {
-        let mut request = SearchifyRaftMessage::new();
-        request.wrapped_message = message.write_to_bytes().unwrap();
-        request.raft_group_id = raft_group_id;
         futurize_unit(
             "raft",
             self.client.raft_message_async_opt(&request, self.options()),
@@ -216,5 +246,13 @@ impl RpcClient {
         CallOption::default()
             .wait_for_ready(true)
             .timeout(Duration::from_secs(30))
+    }
+}
+
+impl std::ops::Deref for RpcClient {
+    type Target = RpcClientInner;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
     }
 }

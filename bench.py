@@ -8,9 +8,9 @@ import uuid
 URL = 'http://localhost'
 PORTS = [8080, 8081, 8082]
 
-LOOPS = 10
-BULK_SIZE = 100
-THREADS = 8
+LOOPS = 50
+BULK_SIZE = 200
+THREADS = 20
 INDEX_NAME = 'hello-world'
 
 def build_batch():
@@ -27,7 +27,8 @@ def build_batch():
         s += '\n'
     return s
 
-def bench_loop():
+def bench_loop(n):
+    batch = build_batch()
     for i in range(LOOPS):
         port = random.choice(PORTS)
         url = "{}:{}/{}/_bulk".format(
@@ -35,13 +36,13 @@ def bench_loop():
             port,
             INDEX_NAME,
         )
-        print(url)
-        requests.post(url, data=build_batch())
+        print("{} {}".format(n, url))
+        requests.post(url, data=batch)
 
 def run_benchmark():
     threads = []
-    for _ in range(THREADS):
-        thread = threading.Thread(target=bench_loop)
+    for n in range(THREADS):
+        thread = threading.Thread(target=bench_loop, args=[n])
         thread.start()
         threads.append(thread)
     for thread in threads:

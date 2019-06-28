@@ -1,6 +1,7 @@
 #+TODO: TODO DOING | DONE
 
 !! Bug: create an index, then try to bulk to it. Fails!
+!! Shard failover causes any in-flight requests to time out (and get dropped)
 
 * Current Notes
   

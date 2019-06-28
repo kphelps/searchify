@@ -91,6 +91,7 @@ impl KeyValueStateMachine {
             self.event_emitter
                 .emit(MetaStateEvent::ShardUpdate(shard.id, Some(shard.clone())));
         }
+        index_state.set_shards(shards.into());
         self.event_emitter.emit(MetaStateEvent::IndexUpdate(
             index_state.name.clone(),
             Some(index_state),

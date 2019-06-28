@@ -319,7 +319,7 @@ impl RaftStorage {
                 if !exceeded_max_size || out.is_empty() {
                     out.push(entry);
                 }
-                Ok(exceeded_max_size)
+                Ok(!exceeded_max_size)
             })?;
         Ok(out)
     }
