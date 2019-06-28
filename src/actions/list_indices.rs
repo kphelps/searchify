@@ -54,7 +54,7 @@ impl Action for ListIndicesAction {
             ListIndicesResponse {
                 indices: indices.collect(),
             }
-        });
+        }).from_err();
         Box::new(f)
     }
 }

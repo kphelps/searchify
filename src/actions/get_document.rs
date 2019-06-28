@@ -63,6 +63,7 @@ impl Action for GetDocumentAction {
         let f = ctx
             .node_router
             .get_document(request.name.clone(), request.id.clone().into())
+            .from_err()
             .and_then(move |response| {
                 let source = if response.found {
                     let j = response.get_source();

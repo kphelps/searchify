@@ -74,7 +74,8 @@ impl Action for DeleteDocumentAction {
                     version: "0".to_string(),
                     result: "deleted".to_string(),
                 })
-            });
+            })
+            .from_err();
         Box::new(f)
     }
 }

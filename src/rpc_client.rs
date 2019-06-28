@@ -84,11 +84,11 @@ impl RpcClient {
         &self,
         message: &raft::eraftpb::Message,
         raft_group_id: u64,
-    ) {
+    ) -> Result<(), Error> {
         let mut request = SearchifyRaftMessage::new();
         request.wrapped_message = message.write_to_bytes().unwrap();
         request.raft_group_id = raft_group_id;
-        self.sender.unbounded_send(request).unwrap();
+        self.sender.unbounded_send(request).map_err(Error::from)
     }
 }
 

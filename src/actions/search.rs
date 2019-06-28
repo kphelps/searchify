@@ -81,6 +81,7 @@ impl Action for SearchAction {
         let f = ctx
             .node_router
             .search(request.name.clone(), query_string)
+            .from_err()
             .and_then(move |result| process_search_results(result, request.name, start));
         Box::new(f)
     }

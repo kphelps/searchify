@@ -5,7 +5,7 @@ use crate::gossip::GossipState;
 use crate::mappings::Mappings;
 use crate::proto::*;
 use crate::rpc_client::RpcClient;
-use failure::{err_msg, Error};
+use failure::{Error, Fail};
 use futures::{future, prelude::*, sync::oneshot};
 use log::*;
 use std::collections::HashMap;
@@ -22,6 +22,26 @@ pub struct NodeRouter {
 #[derive(Clone)]
 pub struct NodeRouterHandle {
     handle: Arc<NodeRouter>,
+}
+
+#[derive(Debug, Fail)]
+pub enum SearchError {
+    #[fail(display = "index not found")]
+    IndexNotFound,
+    #[fail(display = "shard not found")]
+    ShardNotFound,
+    #[fail(display = "cluster state unavailable")]
+    ClusterStateUnavailable,
+    #[fail(display = "leader unavailable")]
+    LeaderUnavailable,
+    #[fail(display = "Unknown error: {}", 0)]
+    Error(String)
+}
+
+impl From<Error> for SearchError {
+    fn from(error: Error) -> Self {
+        SearchError::Error(format!("{}", error))
+    }
 }
 
 impl NodeRouter {
@@ -75,9 +95,9 @@ impl NodeRouter {
         &self,
         message: raft::eraftpb::Message,
         raft_group_id: u64,
-    ) {
+    ) -> Result<(), Error> {
         self.peer(message.to)
-            .map(move |peer| peer.raft_message(&message, raft_group_id));
+            .and_then(move |peer| peer.raft_message(&message, raft_group_id))
     }
 
     pub fn create_index(
@@ -86,25 +106,25 @@ impl NodeRouter {
         shard_count: u64,
         replica_count: u64,
         mappings: Mappings,
-    ) -> impl Future<Item = (), Error = Error> {
+    ) -> impl Future<Item = (), Error = SearchError> {
         self.with_leader_client(move |client| {
             client.create_index(&name, shard_count, replica_count, mappings)
         })
     }
 
-    pub fn delete_index(&self, name: String) -> impl Future<Item = (), Error = Error> {
+    pub fn delete_index(&self, name: String) -> impl Future<Item = (), Error = SearchError> {
         self.with_leader_client(move |client| client.delete_index(&name))
     }
 
-    pub fn get_index(&self, name: String) -> impl Future<Item = IndexState, Error = Error> {
+    pub fn get_index(&self, name: String) -> impl Future<Item = IndexState, Error = SearchError> {
         self.with_leader_client(move |client| client.get_index(&name))
     }
 
-    pub fn list_indices(&self) -> impl Future<Item = ListIndicesResponse, Error = Error> {
+    pub fn list_indices(&self) -> impl Future<Item = ListIndicesResponse, Error = SearchError> {
         self.with_leader_client(move |client| client.list_indices())
     }
 
-    pub fn send_heartbeat(&self) -> impl Future<Item = (), Error = Error> {
+    pub fn send_heartbeat(&self) -> impl Future<Item = (), Error = SearchError> {
         self.with_leader_client(|client| client.heartbeat())
     }
 
@@ -113,7 +133,7 @@ impl NodeRouter {
         index_name: String,
         document_id: DocumentId,
         payload: serde_json::Value,
-    ) -> impl Future<Item = (), Error = Error> {
+    ) -> impl Future<Item = (), Error = SearchError> {
         self.get_shard_client_for_document(&index_name, &document_id)
             .into_future()
             .and_then(move |shard_client| {
@@ -122,7 +142,7 @@ impl NodeRouter {
                     shard_client.shard.id,
                     document_id,
                     payload,
-                )
+                ).from_err()
             })
     }
 
@@ -130,17 +150,17 @@ impl NodeRouter {
         &self,
         index_name: String,
         document_id: DocumentId,
-    ) -> impl Future<Item = GetDocumentResponse, Error = Error> {
+    ) -> impl Future<Item = GetDocumentResponse, Error = SearchError> {
         self.get_shard_client_for_document(&index_name, &document_id)
             .into_future()
-            .and_then(|client| client.client.get_document(client.shard.id, document_id))
+            .and_then(|client| client.client.get_document(client.shard.id, document_id).from_err())
     }
 
     pub fn search(
         &self,
         index_name: String,
         query: Vec<u8>,
-    ) -> impl Future<Item = MergedSearchResponse, Error = Error> {
+    ) -> impl Future<Item = MergedSearchResponse, Error = SearchError> {
         let resolver = self.gossip_state.clone();
         let limit = 10;
         self.get_cached_index(&index_name)
@@ -185,13 +205,13 @@ impl NodeRouter {
         &self,
         index_name: String,
         id: DocumentId,
-    ) -> impl Future<Item = DeleteDocumentResponse, Error = Error> {
+    ) -> impl Future<Item = DeleteDocumentResponse, Error = SearchError> {
         self.get_shard_client_for_document(&index_name, &id)
             .into_future()
-            .and_then(move |client| client.client.delete_document(client.shard.id, id))
+            .and_then(move |client| client.client.delete_document(client.shard.id, id).from_err())
     }
 
-    pub fn refresh_index(&self, index_name: &str) -> impl Future<Item = (), Error = Error> {
+    pub fn refresh_index(&self, index_name: &str) -> impl Future<Item = (), Error = SearchError> {
         let resolver = self.gossip_state.clone();
         let index_res = self.get_cached_index(index_name);
         future::result(index_res)
@@ -203,12 +223,12 @@ impl NodeRouter {
                         .into_future()
                         .and_then(move |client| client.refresh_shard(shard.id))
                 });
-                future::join_all(shards)
+                future::join_all(shards).from_err()
             })
             .map(|_| ())
     }
 
-    pub fn refresh_shard(&self, shard_id: u64) -> impl Future<Item = (), Error = Error> {
+    pub fn refresh_shard(&self, shard_id: u64) -> impl Future<Item = (), Error = SearchError> {
         let resolver = self.gossip_state.clone();
         self.get_shard_by_id(shard_id).and_then(move |shard| {
             let replica_id = shard.replicas.first().unwrap().id;
@@ -216,10 +236,11 @@ impl NodeRouter {
                 .get_client(replica_id)
                 .into_future()
                 .and_then(move |client| client.refresh_shard(shard.id))
+                .from_err()
         })
     }
 
-    fn get_shard_by_id(&self, shard_id: u64) -> impl Future<Item = ShardState, Error = Error> {
+    fn get_shard_by_id(&self, shard_id: u64) -> impl Future<Item = ShardState, Error = SearchError> {
         self.list_indices().and_then(move |response| {
             response
                 .get_indices()
@@ -228,7 +249,7 @@ impl NodeRouter {
                 .flatten()
                 .find(|shard| shard.get_id() == shard_id)
                 .cloned()
-                .ok_or_else(|| err_msg("Shard not found"))
+                .ok_or(SearchError::ShardNotFound)
         })
     }
 
@@ -236,7 +257,7 @@ impl NodeRouter {
         &self,
         index_name: &str,
         document_id: &DocumentId,
-    ) -> Result<ShardState, Error> {
+    ) -> Result<ShardState, SearchError> {
         let id = document_id.routing_id();
         self.get_cached_index(index_name).map(move |index| {
             index
@@ -255,7 +276,7 @@ impl NodeRouter {
         &self,
         index_name: &str,
         document_id: &DocumentId,
-    ) -> Result<ShardClient, Error> {
+    ) -> Result<ShardClient, SearchError> {
         let resolver = self.gossip_state.clone();
         self.get_shard_for_document(index_name, document_id)
             .and_then(move |shard| {
@@ -265,13 +286,13 @@ impl NodeRouter {
             })
     }
 
-    pub fn get_cached_index(&self, index_name: &str) -> Result<IndexState, Error> {
+    pub fn get_cached_index(&self, index_name: &str) -> Result<IndexState, SearchError> {
         self.cluster_state
             .upgrade()
-            .ok_or_else(|| err_msg("Cluster state unavailable"))
+            .ok_or(SearchError::ClusterStateUnavailable)
             .and_then(|cs| {
                 cs.get_index(index_name)
-                    .ok_or_else(|| err_msg("Index not found"))
+                    .ok_or(SearchError::IndexNotFound)
             })
     }
 
@@ -279,16 +300,18 @@ impl NodeRouter {
         self.gossip_state.get_client(id)
     }
 
-    fn leader_client(&self) -> Result<RpcClient, Error> {
+    fn leader_client(&self) -> Result<RpcClient, SearchError> {
         self.gossip_state.get_meta_leader_client()
+            .map_err(|_| SearchError::LeaderUnavailable)
     }
 
-    fn with_leader_client<F, X, R>(&self, f: F) -> impl Future<Item = R, Error = Error>
+    fn with_leader_client<F, X, R, E>(&self, f: F) -> impl Future<Item = R, Error = SearchError>
     where
         F: FnOnce(RpcClient) -> X,
-        X: Future<Item = R, Error = Error>,
+        X: Future<Item = R, Error = E>,
+        SearchError: From<E>
     {
-        future::result(self.leader_client()).and_then(f)
+        future::result(self.leader_client()).and_then(|c| f(c).from_err())
     }
 }
 

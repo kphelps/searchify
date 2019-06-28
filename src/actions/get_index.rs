@@ -47,7 +47,7 @@ impl Action for GetIndexAction {
             index_name: state.name,
             shard_count: state.shard_count,
             replica_count: state.replica_count,
-        });
+        }).from_err();
         Box::new(f)
     }
 }

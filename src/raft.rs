@@ -341,14 +341,14 @@ where
 
         let mut ready = self.raft_node.ready();
         if self.is_leader() {
-            self.send_messages(&mut ready);
+            self.send_messages(&mut ready)?;
         }
         let mut batch = self.raft_node.mut_store().batch();
         self.apply_snapshot(&ready)?;
         self.append_entries(&ready, &mut batch)?;
         self.apply_hardstate(&ready, &mut batch)?;
         if !self.is_leader() {
-            self.send_messages(&mut ready);
+            self.send_messages(&mut ready)?;
         }
         self.apply_committed_entries(&ready, &mut batch)?;
         batch.commit()?;
@@ -494,10 +494,11 @@ where
         Ok(())
     }
 
-    fn send_messages(&self, ready: &mut Ready) {
+    fn send_messages(&self, ready: &mut Ready) -> Result<(), Error> {
         for message in ready.messages.drain(..) {
-            self.node_router.route_raft_message(message, self.raft_group_id);
+            self.node_router.route_raft_message(message, self.raft_group_id)?;
         }
+        Ok(())
     }
 
     fn apply_committed_entries(

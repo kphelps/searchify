@@ -50,7 +50,8 @@ impl Action for RefreshAction {
         let f = ctx
             .node_router
             .refresh_index(&request.name)
-            .map(|_| RefreshResponse {});
+            .map(|_| RefreshResponse {})
+            .from_err();
         Box::new(f)
     }
 }

@@ -43,6 +43,6 @@ impl Action for DeleteIndexAction {
         request: DeleteIndexRequest,
         ctx: ActionContext,
     ) -> Box<Future<Item = Self::Response, Error = Error>> {
-        Box::new(ctx.node_router.delete_index(request.name))
+        Box::new(ctx.node_router.delete_index(request.name).from_err())
     }
 }

@@ -57,7 +57,8 @@ impl Action for IndexDocumentAction {
         let f = ctx
             .node_router
             .index_document(request.name, request.id.into(), request.document)
-            .map(|_| IndexDocumentResponse {});
+            .map(|_| IndexDocumentResponse {})
+            .from_err();
         Box::new(f)
     }
 }

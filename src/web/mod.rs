@@ -54,6 +54,7 @@ fn register_actions(cfg: &mut web::ServiceConfig) {
     register_action(cfg, actions::RefreshAction);
     register_action(cfg, actions::CreateIndexAction);
     register_action(cfg, actions::GetIndexAction);
+    register_action(cfg, actions::IndexExistsAction);
 }
 
 pub fn start_web(config: &Config, action_executor: ActionExecutor) -> Result<(), Error> {
