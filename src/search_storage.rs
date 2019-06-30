@@ -1,5 +1,6 @@
 use crate::document::{DocumentId, ExpectedVersion};
 use crate::mappings::Mappings;
+use crate::metrics::SEARCH_TIME_HISTOGRAM;
 use crate::proto::{GetDocumentResponse, SearchHit, SearchRequest, SearchResponse};
 use crate::query_api::{QueryValue, SearchQuery, TermQuery, ToQuery};
 use crate::version_tracker::{TrackedVersion, VersionTracker};
@@ -56,33 +57,39 @@ impl SearchStorage {
         source: &serde_json::Value,
         expected_version: ExpectedVersion,
     ) -> Result<(), Error> {
-        let document_exists = self.document_exists(id.clone())?;
-        match expected_version {
-            ExpectedVersion::Any => (),
-            ExpectedVersion::Version(_) => (),
-            ExpectedVersion::Deleted => {
-                if document_exists {
-                    return Err(SearchStorageError::DocumentAlreadyExists.into());
+        let timer = SEARCH_TIME_HISTOGRAM.with_label_values(&["index"]).start_timer();
+        with_timer("index", || {
+            let document_exists = self.document_exists(id.clone())?;
+            match expected_version {
+                ExpectedVersion::Any => (),
+                ExpectedVersion::Version(_) => (),
+                ExpectedVersion::Deleted => {
+                    if document_exists {
+                        return Err(SearchStorageError::DocumentAlreadyExists.into());
+                    }
                 }
             }
-        }
-        self.versions.insert(id, 0.into());
-        if document_exists {
-            self.raw_delete(id.clone())?;
-        }
-        let mapped_document = self.mappings.map_to_document(id, source)?;
-        mapped_document
-            .to_documents(&self.schema)
-            .into_iter()
-            .for_each(|doc| {
-                self.writer.add_document(doc);
-            });
-        Ok(())
+            self.versions.insert(id, 0.into());
+            if document_exists {
+                self.raw_delete(id.clone())?;
+            }
+            let mapped_document = self.mappings.map_to_document(id, source)?;
+            mapped_document
+                .to_documents(&self.schema)
+                .into_iter()
+                .for_each(|doc| {
+                    self.writer.add_document(doc);
+                });
+            timer.observe_duration();
+            Ok(())
+        })
     }
 
     pub fn delete(&mut self, id: DocumentId) -> Result<(), Error> {
-        self.versions.delete(&id);
-        self.raw_delete(id)
+        with_timer("delete", || {
+            self.versions.delete(&id);
+            self.raw_delete(id)
+        })
     }
 
     fn raw_delete(&mut self, id: DocumentId) -> Result<(), Error> {
@@ -93,50 +100,56 @@ impl SearchStorage {
     }
 
     pub fn search(&self, request: SearchRequest) -> Result<SearchResponse, Error> {
-        let query: SearchQuery = serde_json::from_slice(&request.query)?;
-        let limit = if request.limit == 0 {
-            10
-        } else {
-            request.limit
-        };
-        let docs_collector = TopDocs::with_limit(limit as usize);
-        let collector = (Count, docs_collector);
-        let searcher = self.reader.searcher();
-        let raw_query = query.to_query(&self.schema, &searcher)?;
-        let result = searcher.search(&raw_query, &collector)?;
-        let mut response = SearchResponse::new();
-        response.set_total(result.0 as u64);
-        let hits = result
-            .1
-            .into_iter()
-            .map(|(score, addr)| {
-                self.get_hit(&searcher, addr).map(|mut hit| {
-                    hit.set_score(score);
-                    hit
+        with_timer("search", || {
+            let query: SearchQuery = serde_json::from_slice(&request.query)?;
+            let limit = if request.limit == 0 {
+                10
+            } else {
+                request.limit
+            };
+            let docs_collector = TopDocs::with_limit(limit as usize);
+            let collector = (Count, docs_collector);
+            let searcher = self.reader.searcher();
+            let raw_query = query.to_query(&self.schema, &searcher)?;
+            let result = searcher.search(&raw_query, &collector)?;
+            let mut response = SearchResponse::new();
+            response.set_total(result.0 as u64);
+            let hits = result
+                .1
+                .into_iter()
+                .map(|(score, addr)| {
+                    self.get_hit(&searcher, addr).map(|mut hit| {
+                        hit.set_score(score);
+                        hit
+                    })
                 })
-            })
-            .collect::<Result<Vec<SearchHit>, Error>>()?;
-        response.set_hits(hits.into());
-        Ok(response)
+                .collect::<Result<Vec<SearchHit>, Error>>()?;
+            response.set_hits(hits.into());
+            Ok(response)
+        })
     }
 
     pub fn get(&self, document_id: DocumentId) -> Result<GetDocumentResponse, Error> {
-        let searcher = self.reader.searcher();
-        let maybe_addr = self.resolve_document_id(&searcher, document_id)?;
-        let mut response = GetDocumentResponse::new();
-        response.set_found(maybe_addr.is_some());
-        if let Some(addr) = maybe_addr {
-            response.set_source(self.get_source(&searcher, addr)?);
-        }
-        Ok(response)
+        with_timer("get", || {
+            let searcher = self.reader.searcher();
+            let maybe_addr = self.resolve_document_id(&searcher, document_id)?;
+            let mut response = GetDocumentResponse::new();
+            response.set_found(maybe_addr.is_some());
+            if let Some(addr) = maybe_addr {
+                response.set_source(self.get_source(&searcher, addr)?);
+            }
+            Ok(response)
+        })
     }
 
     pub fn refresh(&mut self) -> Result<(), Error> {
-        self.versions.pre_commmit();
-        self.writer.commit()?;
-        self.versions.post_commit();
-        let _ = self.reader.reload();
-        Ok(())
+        with_timer("refresh", || {
+            self.versions.pre_commmit();
+            self.writer.commit()?;
+            self.versions.post_commit();
+            let _ = self.reader.reload();
+            Ok(())
+        })
     }
 
     fn get_source(&self, searcher: &Searcher, addr: DocAddress) -> Result<Vec<u8>, Error> {
@@ -189,6 +202,15 @@ impl SearchStorage {
             Some(result[0].1)
         })
     }
+}
+
+fn with_timer<F, R>(name: &'static str, f: F) -> R
+    where F: FnOnce() -> R
+{
+    let timer = SEARCH_TIME_HISTOGRAM.with_label_values(&[name]).start_timer();
+    let out = f();
+    timer.observe_duration();
+    out
 }
 
 #[cfg(test)]
