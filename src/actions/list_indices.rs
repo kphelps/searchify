@@ -45,16 +45,20 @@ impl Action for ListIndicesAction {
         _: (),
         ctx: ActionContext,
     ) -> Box<Future<Item = Self::Response, Error = Error>> {
-        let f = ctx.node_router.list_indices().map(|response| {
-            let indices = response.indices.into_iter().map(|index| Index {
-                index_name: index.name,
-                shard_count: index.shard_count,
-                replica_count: index.replica_count,
-            });
-            ListIndicesResponse {
-                indices: indices.collect(),
-            }
-        }).from_err();
+        let f = ctx
+            .node_router
+            .list_indices()
+            .map(|response| {
+                let indices = response.indices.into_iter().map(|index| Index {
+                    index_name: index.name,
+                    shard_count: index.shard_count,
+                    replica_count: index.replica_count,
+                });
+                ListIndicesResponse {
+                    indices: indices.collect(),
+                }
+            })
+            .from_err();
         Box::new(f)
     }
 }

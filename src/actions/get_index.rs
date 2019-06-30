@@ -43,11 +43,15 @@ impl Action for GetIndexAction {
         request: GetIndexRequest,
         ctx: ActionContext,
     ) -> Box<Future<Item = Self::Response, Error = Error>> {
-        let f = ctx.node_router.get_index(request.name).map(|state| Index {
-            index_name: state.name,
-            shard_count: state.shard_count,
-            replica_count: state.replica_count,
-        }).from_err();
+        let f = ctx
+            .node_router
+            .get_index(request.name)
+            .map(|state| Index {
+                index_name: state.name,
+                shard_count: state.shard_count,
+                replica_count: state.replica_count,
+            })
+            .from_err();
         Box::new(f)
     }
 }

@@ -1,9 +1,9 @@
 use super::{Action, ActionContext};
+use crate::node_router::SearchError;
 use actix_web::{web::Payload, *};
 use failure::Error;
 use futures::prelude::*;
 use log::*;
-use crate::node_router::SearchError;
 
 #[derive(Clone, Copy)]
 pub struct IndexExistsAction;
@@ -49,16 +49,14 @@ impl Action for IndexExistsAction {
         request: IndexExistsRequest,
         ctx: ActionContext,
     ) -> Box<Future<Item = Self::Response, Error = Error>> {
-        let f = ctx.node_router
-            .get_index(request.name)
-            .then(|result| {
-                info!("Err: {:?}", result);
-                match result {
-                    Ok(_) => Ok(true),
-                    Err(SearchError::IndexNotFound) => Ok(false),
-                    Err(err) => Err(err.into()),
-                }
-            });
+        let f = ctx.node_router.get_index(request.name).then(|result| {
+            info!("Err: {:?}", result);
+            match result {
+                Ok(_) => Ok(true),
+                Err(SearchError::IndexNotFound) => Ok(false),
+                Err(err) => Err(err.into()),
+            }
+        });
         Box::new(f)
     }
 }

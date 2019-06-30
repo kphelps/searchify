@@ -35,7 +35,7 @@ pub enum SearchError {
     #[fail(display = "leader unavailable")]
     LeaderUnavailable,
     #[fail(display = "Unknown error: {}", 0)]
-    Error(String)
+    Error(String),
 }
 
 impl From<Error> for SearchError {
@@ -137,12 +137,10 @@ impl NodeRouter {
         self.get_shard_client_for_document(&index_name, &document_id)
             .into_future()
             .and_then(move |shard_client| {
-                shard_client.client.index_document(
-                    &index_name,
-                    shard_client.shard.id,
-                    document_id,
-                    payload,
-                ).from_err()
+                shard_client
+                    .client
+                    .index_document(&index_name, shard_client.shard.id, document_id, payload)
+                    .from_err()
             })
     }
 
@@ -153,7 +151,12 @@ impl NodeRouter {
     ) -> impl Future<Item = GetDocumentResponse, Error = SearchError> {
         self.get_shard_client_for_document(&index_name, &document_id)
             .into_future()
-            .and_then(|client| client.client.get_document(client.shard.id, document_id).from_err())
+            .and_then(|client| {
+                client
+                    .client
+                    .get_document(client.shard.id, document_id)
+                    .from_err()
+            })
     }
 
     pub fn search(
@@ -208,7 +211,12 @@ impl NodeRouter {
     ) -> impl Future<Item = DeleteDocumentResponse, Error = SearchError> {
         self.get_shard_client_for_document(&index_name, &id)
             .into_future()
-            .and_then(move |client| client.client.delete_document(client.shard.id, id).from_err())
+            .and_then(move |client| {
+                client
+                    .client
+                    .delete_document(client.shard.id, id)
+                    .from_err()
+            })
     }
 
     pub fn refresh_index(&self, index_name: &str) -> impl Future<Item = (), Error = SearchError> {
@@ -240,7 +248,10 @@ impl NodeRouter {
         })
     }
 
-    fn get_shard_by_id(&self, shard_id: u64) -> impl Future<Item = ShardState, Error = SearchError> {
+    fn get_shard_by_id(
+        &self,
+        shard_id: u64,
+    ) -> impl Future<Item = ShardState, Error = SearchError> {
         self.list_indices().and_then(move |response| {
             response
                 .get_indices()
@@ -290,10 +301,7 @@ impl NodeRouter {
         self.cluster_state
             .upgrade()
             .ok_or(SearchError::ClusterStateUnavailable)
-            .and_then(|cs| {
-                cs.get_index(index_name)
-                    .ok_or(SearchError::IndexNotFound)
-            })
+            .and_then(|cs| cs.get_index(index_name).ok_or(SearchError::IndexNotFound))
     }
 
     fn peer(&self, id: u64) -> Result<RpcClient, Error> {
@@ -301,7 +309,8 @@ impl NodeRouter {
     }
 
     fn leader_client(&self) -> Result<RpcClient, SearchError> {
-        self.gossip_state.get_meta_leader_client()
+        self.gossip_state
+            .get_meta_leader_client()
             .map_err(|_| SearchError::LeaderUnavailable)
     }
 
@@ -309,7 +318,7 @@ impl NodeRouter {
     where
         F: FnOnce(RpcClient) -> X,
         X: Future<Item = R, Error = E>,
-        SearchError: From<E>
+        SearchError: From<E>,
     {
         future::result(self.leader_client()).and_then(|c| f(c).from_err())
     }

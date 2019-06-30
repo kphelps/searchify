@@ -94,8 +94,10 @@ impl RpcClient {
 
 impl RpcClientInner {
     fn run_raft_sender(self, receiver: mpsc::UnboundedReceiver<SearchifyRaftMessage>) {
-        let f = receiver
-            .for_each(move |request| self.send_raft_message(request).map_err(|err| error!("Error sending raft message: {}", err)));
+        let f = receiver.for_each(move |request| {
+            self.send_raft_message(request)
+                .map_err(|err| error!("Error sending raft message: {}", err))
+        });
         tokio::spawn(f);
     }
 

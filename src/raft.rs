@@ -496,7 +496,8 @@ where
 
     fn send_messages(&self, ready: &mut Ready) -> Result<(), Error> {
         for message in ready.messages.drain(..) {
-            self.node_router.route_raft_message(message, self.raft_group_id)?;
+            self.node_router
+                .route_raft_message(message, self.raft_group_id)?;
         }
         Ok(())
     }
