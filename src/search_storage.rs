@@ -7,6 +7,7 @@ use crate::version_tracker::{TrackedVersion, VersionTracker};
 use failure::{Error, Fail};
 use std::fs::DirBuilder;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use tantivy::{
     collector::{Count, TopDocs},
     directory::MmapDirectory,
@@ -17,10 +18,27 @@ use tantivy::{
 pub struct SearchStorage {
     _index: Index,
     reader: IndexReader,
+    writer: SearchStorageWriter,
+    schema: Arc<Schema>,
+}
+
+#[derive(Clone)]
+pub struct SearchStorageWriter {
+    inner: Arc<Mutex<WriterInner>>,
+}
+
+struct WriterInner {
+    reader: IndexReader,
     writer: IndexWriter,
-    mappings: Mappings,
-    schema: Schema,
     versions: VersionTracker,
+    mappings: Mappings,
+    schema: Arc<Schema>,
+}
+
+#[derive(Clone)]
+pub struct SearchStorageReader {
+    inner: IndexReader,
+    schema: Arc<Schema>,
 }
 
 #[derive(Debug, Fail)]
@@ -39,17 +57,73 @@ impl SearchStorage {
         let directory = MmapDirectory::open(path)?;
         let index = Index::open_or_create(directory, schema.clone())?;
         let reader = index.reader()?;
-        let writer = index.writer(200_000_000)?;
+        let index_writer = index.writer(200_000_000)?;
+        let p_schema = Arc::new(schema);
 
-        Ok(SearchStorage {
+        let writer_inner = WriterInner {
+            reader: reader.clone(),
+            writer: index_writer,
+            versions: VersionTracker::new(),
+            mappings,
+            schema: p_schema.clone(),
+        };
+
+        let writer = SearchStorageWriter {
+            inner: Arc::new(Mutex::new(writer_inner)),
+        };
+
+        let storage = SearchStorage {
             _index: index,
             reader,
             writer,
-            mappings,
-            schema: schema,
-            versions: VersionTracker::new(),
+            schema: p_schema,
+        };
+
+        Ok(storage)
+    }
+
+    pub fn writer(&self) -> SearchStorageWriter {
+        self.writer.clone()
+    }
+
+    pub fn reader(&self) -> SearchStorageReader {
+        SearchStorageReader {
+            inner: self.reader.clone(),
+            schema: self.schema.clone(),
+        }
+    }
+}
+
+impl SearchStorageWriter {
+    pub fn index(
+        &self,
+        id: &DocumentId,
+        source: &serde_json::Value,
+        expected_version: ExpectedVersion,
+    ) -> Result<(), Error> {
+        with_timer("index", || {
+            let mut locked = self.inner.lock().unwrap();
+            locked.index(id, source, expected_version)
         })
     }
+
+    pub fn delete(&self, id: DocumentId) -> Result<(), Error> {
+        with_timer("delete", || {
+            let mut locked = self.inner.lock().unwrap();
+            locked.delete(id)
+        })
+    }
+
+    pub fn refresh(&self) -> Result<(), Error> {
+        with_timer("refresh", || {
+            let mut locked = self.inner.lock().unwrap();
+            locked.refresh()
+        })
+    }
+
+}
+
+impl WriterInner {
 
     pub fn index(
         &mut self,
@@ -57,39 +131,41 @@ impl SearchStorage {
         source: &serde_json::Value,
         expected_version: ExpectedVersion,
     ) -> Result<(), Error> {
-        let timer = SEARCH_TIME_HISTOGRAM.with_label_values(&["index"]).start_timer();
-        with_timer("index", || {
-            let document_exists = self.document_exists(id.clone())?;
-            match expected_version {
-                ExpectedVersion::Any => (),
-                ExpectedVersion::Version(_) => (),
-                ExpectedVersion::Deleted => {
-                    if document_exists {
-                        return Err(SearchStorageError::DocumentAlreadyExists.into());
-                    }
+        let document_exists = self.document_exists(id.clone())?;
+        match expected_version {
+            ExpectedVersion::Any => (),
+            ExpectedVersion::Version(_) => (),
+            ExpectedVersion::Deleted => {
+                if document_exists {
+                    return Err(SearchStorageError::DocumentAlreadyExists.into());
                 }
             }
-            self.versions.insert(id, 0.into());
-            if document_exists {
-                self.raw_delete(id.clone())?;
-            }
-            let mapped_document = self.mappings.map_to_document(id, source)?;
-            mapped_document
-                .to_documents(&self.schema)
-                .into_iter()
-                .for_each(|doc| {
-                    self.writer.add_document(doc);
-                });
-            timer.observe_duration();
-            Ok(())
-        })
+        }
+        self.versions.insert(id, 0.into());
+        if document_exists {
+            self.raw_delete(id.clone())?;
+        }
+        let mapped_document = self.mappings.map_to_document(id, source)?;
+        mapped_document
+            .to_documents(&self.schema)
+            .into_iter()
+            .for_each(|doc| {
+                self.writer.add_document(doc);
+            });
+        Ok(())
     }
 
     pub fn delete(&mut self, id: DocumentId) -> Result<(), Error> {
-        with_timer("delete", || {
-            self.versions.delete(&id);
-            self.raw_delete(id)
-        })
+        self.versions.delete(&id);
+        self.raw_delete(id)
+    }
+
+    pub fn refresh(&mut self) -> Result<(), Error> {
+        self.versions.pre_commmit();
+        self.writer.commit()?;
+        self.versions.post_commit();
+        let _ = self.reader.reload();
+        Ok(())
     }
 
     fn raw_delete(&mut self, id: DocumentId) -> Result<(), Error> {
@@ -99,6 +175,19 @@ impl SearchStorage {
         Ok(())
     }
 
+    fn document_exists(&self, id: DocumentId) -> Result<bool, Error> {
+        match self.versions.get(&id) {
+            Some(TrackedVersion::Live(_)) => Ok(true),
+            Some(TrackedVersion::Deleted) => Ok(false),
+            None => {
+                let searcher = self.reader.searcher();
+                Ok(resolve_document_id(&self.schema, &searcher, id)?.is_some())
+            }
+        }
+    }
+}
+
+impl SearchStorageReader {
     pub fn search(&self, request: SearchRequest) -> Result<SearchResponse, Error> {
         with_timer("search", || {
             let query: SearchQuery = serde_json::from_slice(&request.query)?;
@@ -109,7 +198,7 @@ impl SearchStorage {
             };
             let docs_collector = TopDocs::with_limit(limit as usize);
             let collector = (Count, docs_collector);
-            let searcher = self.reader.searcher();
+            let searcher = self.inner.searcher();
             let raw_query = query.to_query(&self.schema, &searcher)?;
             let result = searcher.search(&raw_query, &collector)?;
             let mut response = SearchResponse::new();
@@ -131,24 +220,14 @@ impl SearchStorage {
 
     pub fn get(&self, document_id: DocumentId) -> Result<GetDocumentResponse, Error> {
         with_timer("get", || {
-            let searcher = self.reader.searcher();
-            let maybe_addr = self.resolve_document_id(&searcher, document_id)?;
+            let searcher = self.inner.searcher();
+            let maybe_addr = resolve_document_id(&self.schema, &searcher, document_id)?;
             let mut response = GetDocumentResponse::new();
             response.set_found(maybe_addr.is_some());
             if let Some(addr) = maybe_addr {
                 response.set_source(self.get_source(&searcher, addr)?);
             }
             Ok(response)
-        })
-    }
-
-    pub fn refresh(&mut self) -> Result<(), Error> {
-        with_timer("refresh", || {
-            self.versions.pre_commmit();
-            self.writer.commit()?;
-            self.versions.post_commit();
-            let _ = self.reader.reload();
-            Ok(())
         })
     }
 
@@ -177,31 +256,6 @@ impl SearchStorage {
         Ok(hit)
     }
 
-    fn document_exists(&self, id: DocumentId) -> Result<bool, Error> {
-        match self.versions.get(&id) {
-            Some(TrackedVersion::Live(_)) => Ok(true),
-            Some(TrackedVersion::Deleted) => Ok(false),
-            None => {
-                let searcher = self.reader.searcher();
-                Ok(self.resolve_document_id(&searcher, id)?.is_some())
-            }
-        }
-    }
-
-    fn resolve_document_id(
-        &self,
-        searcher: &Searcher,
-        id: DocumentId,
-    ) -> Result<Option<DocAddress>, Error> {
-        let query = TermQuery::new("_id", QueryValue::String(id.into()));
-        let collector = TopDocs::with_limit(1);
-        let result = searcher.search(&query.to_query(&self.schema, &searcher)?, &collector)?;
-        Ok(if result.is_empty() {
-            None
-        } else {
-            Some(result[0].1)
-        })
-    }
 }
 
 fn with_timer<F, R>(name: &'static str, f: F) -> R
@@ -211,6 +265,21 @@ fn with_timer<F, R>(name: &'static str, f: F) -> R
     let out = f();
     timer.observe_duration();
     out
+}
+
+fn resolve_document_id(
+    schema: &Schema,
+    searcher: &Searcher,
+    id: DocumentId,
+) -> Result<Option<DocAddress>, Error> {
+    let query = TermQuery::new("_id", QueryValue::String(id.into()));
+    let collector = TopDocs::with_limit(1);
+    let result = searcher.search(&query.to_query(schema, &searcher)?, &collector)?;
+    Ok(if result.is_empty() {
+        None
+    } else {
+        Some(result[0].1)
+    })
 }
 
 #[cfg(test)]
@@ -237,7 +306,7 @@ mod test {
         let dir = tempdir().unwrap();
         let storage = new_storage(&dir);
         let doc_id = "hello world";
-        let result = storage.get(doc_id.into()).unwrap();
+        let result = storage.reader().get(doc_id.into()).unwrap();
         assert!(!result.get_found());
     }
 
@@ -246,29 +315,31 @@ mod test {
     #[test]
     fn test_get_exists_uncommitted() {
         let dir = tempdir().unwrap();
-        let mut storage = new_storage(&dir);
+        let storage = new_storage(&dir);
         let doc_id = "hello world".into();
         let doc_str = r#"{"hello": "world"}"#;
         let document = serde_json::from_str(doc_str).unwrap();
         storage
+            .writer()
             .index(&doc_id, &document, ExpectedVersion::Any)
             .unwrap();
-        let result = storage.get(doc_id).unwrap();
+        let result = storage.reader().get(doc_id).unwrap();
         assert!(!result.get_found());
     }
 
     #[test]
     fn test_get_exists() {
         let dir = tempdir().unwrap();
-        let mut storage = new_storage(&dir);
+        let storage = new_storage(&dir);
         let doc_id = "hello world".into();
         let doc_str = r#"{"hello": "world"}"#;
         let document = serde_json::from_str(doc_str).unwrap();
-        storage
+        let writer = storage.writer();
+        writer
             .index(&doc_id, &document, ExpectedVersion::Any)
             .unwrap();
-        storage.refresh().unwrap();
-        let result = storage.get(doc_id).unwrap();
+        writer.refresh().unwrap();
+        let result = storage.reader().get(doc_id).unwrap();
         assert!(result.get_found());
         assert_eq!(
             result.get_source().to_vec(),
@@ -279,14 +350,15 @@ mod test {
     #[test]
     fn test_term_query() {
         let dir = tempdir().unwrap();
-        let mut storage = new_storage(&dir);
+        let storage = new_storage(&dir);
         let doc_id = "hello world".into();
         let doc_str = r#"{"hello": "world"}"#;
         let document = serde_json::from_str(doc_str).unwrap();
-        storage
+        let writer = storage.writer();
+        writer
             .index(&doc_id, &document, ExpectedVersion::Any)
             .unwrap();
-        storage.refresh().unwrap();
+        writer.refresh().unwrap();
 
         let q = SearchQuery::TermQuery(TermQuery::new(
             "hello",
@@ -294,7 +366,7 @@ mod test {
         ));
         let mut request = SearchRequest::new();
         request.query = serde_json::to_vec(&q).unwrap();
-        let result = storage.search(request).unwrap();
+        let result = storage.reader().search(request).unwrap();
         assert_eq!(result.total, 1);
         let hit = result.get_hits().first().unwrap();
         assert_eq!(hit.get_id(), doc_id.id());
@@ -309,25 +381,26 @@ mod test {
         let q = SearchQuery::TermQuery(TermQuery::new(key, qv));
         let mut request = SearchRequest::new();
         request.query = serde_json::to_vec(&q).unwrap();
-        storage.search(request).unwrap()
+        storage.reader().search(request).unwrap()
     }
 
     #[test]
     fn test_index_multi_doc_same_id_pre_commit() {
         let dir = tempdir().unwrap();
-        let mut storage = new_storage(&dir);
+        let storage = new_storage(&dir);
         let doc_id = "hello world".into();
         let doc_str = r#"{"hello": "world"}"#;
         let document = serde_json::from_str(doc_str).unwrap();
         let doc_str2 = r#"{"hello": "world2"}"#;
         let document2 = serde_json::from_str(doc_str2).unwrap();
-        storage
+        let writer = storage.writer();
+        writer
             .index(&doc_id, &document, ExpectedVersion::Any)
             .unwrap();
-        storage
+        writer
             .index(&doc_id, &document2, ExpectedVersion::Any)
             .unwrap();
-        storage.refresh().unwrap();
+        writer.refresh().unwrap();
         assert_eq!(search_term(&storage, "hello", "world").total, 0);
         assert_eq!(search_term(&storage, "hello", "world2").total, 1);
         assert_eq!(search_term(&storage, "_id", doc_id.id()).total, 1);
@@ -336,20 +409,21 @@ mod test {
     #[test]
     fn test_index_multi_doc_same_id_post_commit() {
         let dir = tempdir().unwrap();
-        let mut storage = new_storage(&dir);
+        let storage = new_storage(&dir);
         let doc_id = "hello world".into();
         let doc_str = r#"{"hello": "world"}"#;
         let document = serde_json::from_str(doc_str).unwrap();
         let doc_str2 = r#"{"hello": "world2"}"#;
         let document2 = serde_json::from_str(doc_str2).unwrap();
-        storage
+        let writer = storage.writer();
+        writer
             .index(&doc_id, &document, ExpectedVersion::Any)
             .unwrap();
-        storage.refresh().unwrap();
-        storage
+        writer.refresh().unwrap();
+        writer
             .index(&doc_id, &document2, ExpectedVersion::Any)
             .unwrap();
-        storage.refresh().unwrap();
+        writer.refresh().unwrap();
         assert_eq!(search_term(&storage, "hello", "world").total, 0);
         assert_eq!(search_term(&storage, "hello", "world2").total, 1);
         assert_eq!(search_term(&storage, "_id", doc_id.id()).total, 1);
@@ -358,76 +432,81 @@ mod test {
     #[test]
     fn test_index_create_post_commit() {
         let dir = tempdir().unwrap();
-        let mut storage = new_storage(&dir);
+        let storage = new_storage(&dir);
         let doc_id = "hello world".into();
         let doc_str = r#"{"hello": "world"}"#;
         let document = serde_json::from_str(doc_str).unwrap();
-        storage
+        let writer = storage.writer();
+        writer
             .index(&doc_id, &document, ExpectedVersion::Deleted)
             .unwrap();
-        storage.refresh().unwrap();
-        let result = storage.index(&doc_id, &document, ExpectedVersion::Deleted);
+        writer.refresh().unwrap();
+        let result = writer.index(&doc_id, &document, ExpectedVersion::Deleted);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_index_create_pre_commit() {
         let dir = tempdir().unwrap();
-        let mut storage = new_storage(&dir);
+        let storage = new_storage(&dir);
         let doc_id = "hello world".into();
         let doc_str = r#"{"hello": "world"}"#;
         let document = serde_json::from_str(doc_str).unwrap();
-        storage
+        let writer = storage.writer();
+        writer
             .index(&doc_id, &document, ExpectedVersion::Deleted)
             .unwrap();
-        let result = storage.index(&doc_id, &document, ExpectedVersion::Deleted);
+        let result = writer.index(&doc_id, &document, ExpectedVersion::Deleted);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_index_create_delete_create_pre_commit() {
         let dir = tempdir().unwrap();
-        let mut storage = new_storage(&dir);
+        let storage = new_storage(&dir);
         let doc_id = "hello world".into();
         let doc_str = r#"{"hello": "world"}"#;
         let document = serde_json::from_str(doc_str).unwrap();
-        storage
+        let writer = storage.writer();
+        writer
             .index(&doc_id, &document, ExpectedVersion::Deleted)
             .unwrap();
-        storage.delete(doc_id.clone()).unwrap();
-        let result = storage.index(&doc_id, &document, ExpectedVersion::Deleted);
+        writer.delete(doc_id.clone()).unwrap();
+        let result = writer.index(&doc_id, &document, ExpectedVersion::Deleted);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_index_create_delete_commit_create() {
         let dir = tempdir().unwrap();
-        let mut storage = new_storage(&dir);
+        let storage = new_storage(&dir);
         let doc_id = "hello world".into();
         let doc_str = r#"{"hello": "world"}"#;
         let document = serde_json::from_str(doc_str).unwrap();
-        storage
+        let writer = storage.writer();
+        writer
             .index(&doc_id, &document, ExpectedVersion::Deleted)
             .unwrap();
-        storage.delete(doc_id.clone()).unwrap();
-        storage.refresh().unwrap();
-        let result = storage.index(&doc_id, &document, ExpectedVersion::Deleted);
+        writer.delete(doc_id.clone()).unwrap();
+        writer.refresh().unwrap();
+        let result = writer.index(&doc_id, &document, ExpectedVersion::Deleted);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_index_create_commit_delete_create() {
         let dir = tempdir().unwrap();
-        let mut storage = new_storage(&dir);
+        let storage = new_storage(&dir);
         let doc_id = "hello world".into();
         let doc_str = r#"{"hello": "world"}"#;
         let document = serde_json::from_str(doc_str).unwrap();
-        storage
+        let writer = storage.writer();
+        writer
             .index(&doc_id, &document, ExpectedVersion::Deleted)
             .unwrap();
-        storage.refresh().unwrap();
-        storage.delete(doc_id.clone()).unwrap();
-        let result = storage.index(&doc_id, &document, ExpectedVersion::Deleted);
+        writer.refresh().unwrap();
+        writer.delete(doc_id.clone()).unwrap();
+        let result = writer.index(&doc_id, &document, ExpectedVersion::Deleted);
         assert!(result.is_ok());
     }
 }

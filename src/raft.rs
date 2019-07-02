@@ -150,8 +150,9 @@ pub struct RaftMessageReceived {
 pub trait RaftStateMachine {
     type EntryType: Message;
 
-    fn apply(&mut self, entry: Self::EntryType) -> Result<bool, Error>;
+    fn apply(&mut self, id: u64, entry: Self::EntryType) -> Result<(), Error>;
     fn peers(&self) -> Result<Vec<u64>, Error>;
+    fn last_applied(&self) -> u64;
 }
 
 pub trait RaftEntryHandler<T> {
@@ -508,26 +509,20 @@ where
         batch: &mut MessageWriteBatch,
     ) -> Result<(), Error> {
         if let Some(ref committed_entries) = ready.committed_entries {
-            let mut last_apply_index = 0;
-            let mut conf_state = None;
             for entry in committed_entries {
                 if entry.data.is_empty() && entry.context.is_empty() {
                     // Emtpy entry, when the peer becomes Leader it will send an empty entry.
                     continue;
                 }
 
-                let did_apply = match entry.get_entry_type() {
+                match entry.get_entry_type() {
                     eraftpb::EntryType::EntryNormal => self.handle_normal_entry(entry)?,
-                    eraftpb::EntryType::EntryConfChange => {
-                        conf_state = Some(self.handle_conf_change_entry(entry)?);
-                        true
-                    }
+                    eraftpb::EntryType::EntryConfChange => self.handle_conf_change_entry(entry)?,
                 };
-                if did_apply {
-                    last_apply_index = entry.index;
-                }
             }
+            let last_apply_index = self.state_machine.last_applied();
             if last_apply_index > 0 {
+                let conf_state = Some(self.raft_node.raft.prs().configuration().clone().into());
                 self.raft_node
                     .mut_store()
                     .create_snapshot(last_apply_index, conf_state, vec![])?;
@@ -540,11 +535,11 @@ where
         Ok(())
     }
 
-    fn handle_normal_entry(&mut self, entry: &eraftpb::Entry) -> Result<bool, Error> {
+    fn handle_normal_entry(&mut self, entry: &eraftpb::Entry) -> Result<(), Error> {
         debug!("NormalEntry: {:?}", entry);
         let ctx = parse_from_bytes::<EntryContext>(&entry.context)?;
         let parsed = parse_from_bytes::<T::EntryType>(&entry.data)?;
-        let apply_result = self.state_machine.apply(parsed);
+        let apply_result = self.state_machine.apply(entry.index, parsed);
         if let Err(ref err) = apply_result {
             let parsed = parse_from_bytes::<T::EntryType>(&entry.data)?;
             warn!("Failed to apply '{:?}': {}", parsed, err);
@@ -552,13 +547,13 @@ where
         if let Some(observer) = self.observers.remove(&ctx.id) {
             observer.observe(&self.state_machine);
         }
-        Ok(apply_result.unwrap_or(false))
+        Ok(())
     }
 
     fn handle_conf_change_entry(
         &mut self,
         entry: &eraftpb::Entry,
-    ) -> Result<eraftpb::ConfState, Error> {
+    ) -> Result<(), Error> {
         let cc = eraftpb::ConfChange::decode(&entry.data).expect("Valid protobuf");
 
         debug!("ConfChange: {:?}", cc);
@@ -588,7 +583,7 @@ where
             }
         }
 
-        Ok(self.raft_node.raft.prs().configuration().clone().into())
+        Ok(())
     }
 
     fn advance_raft(&mut self, ready: Ready) {

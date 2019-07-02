@@ -1,13 +1,15 @@
 #+TODO: TODO DOING | DONE
 
-!! Shard failover causes any in-flight requests to time out (and get dropped)
+wip notes:
+- observers should be completed when the entry is applied
+- Raft loop should probably be tweaked?
+- RocksDB-level metrics would be useful
+
+!! Replica set failover causes any in-flight requests to time out (and get dropped)
 !! RPC error handling is bad. Need to have a way to serialize app-level errors across the boundary
 
 * Current Notes
   
-  [[file:src/search_storage.rs:://%20TODO:%20why%20is%20this%20failing?!?!][Failing test to fix]] 
-  
-  Tower-web is terrible too. Try gotham? Bite the bullet and use rocket?
   Missing Validation:
   - Internal mappings fields
 

@@ -7,6 +7,7 @@ mod storage_engine;
 
 mod action_executor;
 mod actions;
+mod async_work_queue;
 mod cached_persistent_cell;
 mod cached_persistent_map;
 mod clock;

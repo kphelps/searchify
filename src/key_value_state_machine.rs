@@ -26,14 +26,15 @@ pub struct KeyValueStateMachine {
     indices: IndexTracker,
     shards: ShardTracker,
     event_emitter: EventEmitter<MetaStateEvent>,
+    last_applied: u64,
 }
 
 impl RaftStateMachine for KeyValueStateMachine {
     type EntryType = KeyValueEntry;
 
-    fn apply(&mut self, entry: KeyValueEntry) -> Result<bool, Error> {
+    fn apply(&mut self, id: u64, entry: KeyValueEntry) -> Result<(), Error> {
         if entry.entry.is_none() {
-            return Ok(true);
+            return Ok(());
         }
 
         match entry.entry.unwrap() {
@@ -43,11 +44,16 @@ impl RaftStateMachine for KeyValueStateMachine {
                 self.liveness_heartbeat(heartbeat)?
             }
         }
-        Ok(true)
+        self.last_applied = id;
+        Ok(())
     }
 
     fn peers(&self) -> Result<Vec<u64>, Error> {
         Ok(self.nodes.keys())
+    }
+
+    fn last_applied(&self) -> u64 {
+        self.last_applied
     }
 }
 
@@ -63,6 +69,7 @@ impl KeyValueStateMachine {
             indices: IndexTracker::new(&engine)?,
             shards: ShardTracker::new(&engine)?,
             event_emitter: EventEmitter::new(16),
+            last_applied: 0,
         })
     }
 

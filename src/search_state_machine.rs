@@ -1,14 +1,17 @@
+use crate::async_work_queue::AsyncWorkQueue;
 use crate::document::ExpectedVersion;
 use crate::mappings::Mappings;
 use crate::proto::*;
 use crate::raft::{FutureStateMachineObserver, RaftPropose, RaftStateMachine};
-use crate::search_storage::SearchStorage;
+use crate::search_storage::{SearchStorage, SearchStorageWriter};
 use failure::Error;
+use futures::prelude::*;
 use futures::sync::oneshot::Sender;
 use std::path::Path;
 
 pub struct SearchStateMachine {
     storage: SearchStorage,
+    apply_queue: AsyncWorkQueue<SearchEntry>,
 }
 
 type SimpleObserver<T, F> = FutureStateMachineObserver<T, F>;
@@ -17,72 +20,30 @@ type SimplePropose = RaftPropose<SearchStateMachine>;
 impl RaftStateMachine for SearchStateMachine {
     type EntryType = SearchEntry;
 
-    fn apply(&mut self, entry: SearchEntry) -> Result<bool, Error> {
-        if entry.operation.is_none() {
-            return Ok(false);
-        }
-        let committed = match entry.operation.unwrap() {
-            SearchEntry_oneof_operation::add_document(operation) => {
-                self.add_document(operation)?;
-                false
-            }
-            SearchEntry_oneof_operation::delete_document(operation) => {
-                self.delete_document(operation)?;
-                false
-            }
-            SearchEntry_oneof_operation::refresh(_) => {
-                self.refresh()?;
-                true
-            }
-            SearchEntry_oneof_operation::bulk(bulk) => {
-                self.bulk(bulk)?;
-                false
-            }
-        };
-        Ok(committed)
+    fn apply(&mut self, id: u64, entry: SearchEntry) -> Result<(), Error> {
+        tokio::spawn(self.apply_queue.push(id, entry).map_err(|_| ()));
+        Ok(())
     }
 
     fn peers(&self) -> Result<Vec<u64>, Error> {
         Ok(Vec::new())
     }
+
+    fn last_applied(&self) -> u64 {
+        self.apply_queue.last_handled()
+    }
+}
+
+struct SearchEntryApplier {
+    storage: SearchStorageWriter,
 }
 
 impl SearchStateMachine {
     pub fn new(path: impl AsRef<Path>, mappings: Mappings) -> Result<Self, Error> {
         let storage = SearchStorage::new(path, mappings)?;
-        Ok(Self { storage })
-    }
-
-    fn add_document(&mut self, mut request: AddDocumentOperation) -> Result<(), Error> {
-        let document = serde_json::from_str(request.get_payload())?;
-        self.storage
-            .index(&request.take_id().into(), &document, ExpectedVersion::Any)
-    }
-
-    fn delete_document(&mut self, mut request: DeleteDocumentOperation) -> Result<(), Error> {
-        self.storage.delete(request.take_id().into())
-    }
-
-    fn refresh(&mut self) -> Result<(), Error> {
-        self.storage.refresh()
-    }
-
-    fn bulk(&mut self, request: BulkEntry) -> Result<(), Error> {
-        request
-            .operations
-            .into_iter()
-            .map(|item| {
-                match item.operation.unwrap() {
-                    BulkEntryItem_oneof_operation::add_document(operation) => {
-                        self.add_document(operation)?;
-                    }
-                    BulkEntryItem_oneof_operation::delete_document(operation) => {
-                        self.delete_document(operation)?;
-                    }
-                };
-                Ok(())
-            })
-            .collect::<Result<(), Error>>()
+        let mut applier = SearchEntryApplier { storage: storage.writer() };
+        let apply_queue = AsyncWorkQueue::new(move |entry: SearchEntry| applier.apply(entry));
+        Ok(Self { storage, apply_queue })
     }
 
     pub fn propose_add_document(
@@ -159,7 +120,7 @@ impl SearchStateMachine {
         sender: Sender<Result<SearchResponse, Error>>,
     ) -> SimplePropose {
         Self::propose_read(request.shard_id, sender, move |sm: &Self| {
-            sm.storage.search(request)
+            sm.storage.reader().search(request)
         })
     }
 
@@ -179,7 +140,7 @@ impl SearchStateMachine {
         sender: Sender<Result<GetDocumentResponse, Error>>,
     ) -> SimplePropose {
         Self::propose_read(request.shard_id, sender, move |sm: &Self| {
-            sm.storage.get(request.document_id.into())
+            sm.storage.reader().get(request.document_id.into())
         })
     }
 
@@ -192,5 +153,62 @@ impl SearchStateMachine {
         let entry = SearchEntry::new();
         let observer = SimpleObserver::new(sender, f);
         SimplePropose::new_for_group(shard_id, entry, observer)
+    }
+}
+
+impl SearchEntryApplier {
+
+    fn apply(&mut self, entry: SearchEntry) -> Result<(), Error> {
+        if entry.operation.is_none() {
+            return Ok(());
+        }
+
+        match entry.operation.unwrap() {
+            SearchEntry_oneof_operation::add_document(operation) => {
+                self.add_document(operation)?;
+            }
+            SearchEntry_oneof_operation::delete_document(operation) => {
+                self.delete_document(operation)?;
+            }
+            SearchEntry_oneof_operation::refresh(_) => {
+                self.refresh()?;
+            }
+            SearchEntry_oneof_operation::bulk(bulk) => {
+                self.bulk(bulk)?;
+            }
+        };
+        Ok(())
+    }
+
+    fn add_document(&mut self, mut request: AddDocumentOperation) -> Result<(), Error> {
+        let document = serde_json::from_str(request.get_payload())?;
+        self.storage
+            .index(&request.take_id().into(), &document, ExpectedVersion::Any)
+    }
+
+    fn delete_document(&mut self, mut request: DeleteDocumentOperation) -> Result<(), Error> {
+        self.storage.delete(request.take_id().into())
+    }
+
+    fn refresh(&mut self) -> Result<(), Error> {
+        self.storage.refresh()
+    }
+
+    fn bulk(&mut self, request: BulkEntry) -> Result<(), Error> {
+        request
+            .operations
+            .into_iter()
+            .map(|item| {
+                match item.operation.unwrap() {
+                    BulkEntryItem_oneof_operation::add_document(operation) => {
+                        self.add_document(operation)?;
+                    }
+                    BulkEntryItem_oneof_operation::delete_document(operation) => {
+                        self.delete_document(operation)?;
+                    }
+                };
+                Ok(())
+            })
+            .collect::<Result<(), Error>>()
     }
 }

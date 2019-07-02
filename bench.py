@@ -8,8 +8,8 @@ import uuid
 URL = 'http://localhost'
 PORTS = [8080, 8081, 8082]
 
-LOOPS = 50
-BULK_SIZE = 200
+LOOPS = 20
+BULK_SIZE = 2000
 THREADS = 20
 INDEX_NAME = 'hello-world'
 
@@ -37,7 +37,7 @@ def bench_loop(n):
             INDEX_NAME,
         )
         print("{} {}".format(n, url))
-        requests.post(url, data=batch)
+        print(requests.post(url, data=batch).content)
 
 def run_benchmark():
     threads = []
