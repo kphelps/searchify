@@ -4,7 +4,7 @@ use crate::event_emitter::EventEmitter;
 use crate::index_tracker::IndexTracker;
 use crate::keys::KeySpace;
 use crate::proto::*;
-use crate::raft::{FutureStateMachineObserver, RaftPropose, RaftStateMachine};
+use crate::raft::{FutureStateMachineObserver, RaftPropose, RaftStateMachine, StateMachineObserver};
 use crate::shard_tracker::ShardTracker;
 use crate::storage_engine::StorageEngine;
 use failure::Error;
@@ -31,8 +31,10 @@ pub struct KeyValueStateMachine {
 
 impl RaftStateMachine for KeyValueStateMachine {
     type EntryType = KeyValueEntry;
+    type Observable = Self;
 
-    fn apply(&mut self, id: u64, entry: KeyValueEntry) -> Result<(), Error> {
+    fn apply(&mut self, id: u64, entry: KeyValueEntry, observer: Option<Box<dyn StateMachineObserver<Self> + Send + Sync>>) -> Result<(), Error>
+    {
         if entry.entry.is_none() {
             return Ok(());
         }
@@ -45,6 +47,9 @@ impl RaftStateMachine for KeyValueStateMachine {
             }
         }
         self.last_applied = id;
+        if let Some(observer) = observer {
+            observer.observe(self);
+        }
         Ok(())
     }
 

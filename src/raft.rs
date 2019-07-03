@@ -78,8 +78,10 @@ where
     }
 }
 
-pub trait StateMachineObserver<S> {
-    fn observe(self: Box<Self>, state_machine: &S);
+pub trait StateMachineObserver<S>
+    where S: RaftStateMachine
+{
+    fn observe(self: Box<Self>, state_machine: &S::Observable);
 }
 
 pub struct FutureStateMachineObserver<T, F> {
@@ -98,9 +100,10 @@ impl<T, F> FutureStateMachineObserver<T, F> {
 
 impl<T, F, S> StateMachineObserver<S> for FutureStateMachineObserver<T, F>
 where
-    F: FnOnce(&S) -> T,
+    S: RaftStateMachine,
+    F: FnOnce(&S::Observable) -> T,
 {
-    fn observe(self: Box<Self>, state_machine: &S) {
+    fn observe(self: Box<Self>, state_machine: &S::Observable) {
         let result = (self.observe_impl)(state_machine);
         if self.sender.send(result).is_err() {
             error!("Failed to observe state machine");
@@ -147,10 +150,12 @@ pub struct RaftMessageReceived {
     pub message: eraftpb::Message,
 }
 
-pub trait RaftStateMachine {
+pub trait RaftStateMachine: Sized {
     type EntryType: Message;
+    type Observable;
 
-    fn apply(&mut self, id: u64, entry: Self::EntryType) -> Result<(), Error>;
+    fn apply(&mut self, id: u64, entry: Self::EntryType, observer: Option<Box<dyn StateMachineObserver<Self> + Send + Sync>>)
+                -> Result<(), Error>;
     fn peers(&self) -> Result<Vec<u64>, Error>;
     fn last_applied(&self) -> u64;
 }
@@ -539,13 +544,11 @@ where
         debug!("NormalEntry: {:?}", entry);
         let ctx = parse_from_bytes::<EntryContext>(&entry.context)?;
         let parsed = parse_from_bytes::<T::EntryType>(&entry.data)?;
-        let apply_result = self.state_machine.apply(entry.index, parsed);
+        let observer = self.observers.remove(&ctx.id);
+        let apply_result = self.state_machine.apply(entry.index, parsed, observer);
         if let Err(ref err) = apply_result {
             let parsed = parse_from_bytes::<T::EntryType>(&entry.data)?;
             warn!("Failed to apply '{:?}': {}", parsed, err);
-        }
-        if let Some(observer) = self.observers.remove(&ctx.id) {
-            observer.observe(&self.state_machine);
         }
         Ok(())
     }

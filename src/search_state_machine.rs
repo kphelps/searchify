@@ -2,8 +2,8 @@ use crate::async_work_queue::AsyncWorkQueue;
 use crate::document::ExpectedVersion;
 use crate::mappings::Mappings;
 use crate::proto::*;
-use crate::raft::{FutureStateMachineObserver, RaftPropose, RaftStateMachine};
-use crate::search_storage::{SearchStorage, SearchStorageWriter};
+use crate::raft::{FutureStateMachineObserver, RaftPropose, RaftStateMachine, StateMachineObserver};
+use crate::search_storage::{SearchStorage, SearchStorageReader, SearchStorageWriter};
 use failure::Error;
 use futures::prelude::*;
 use futures::sync::oneshot::Sender;
@@ -19,8 +19,10 @@ type SimplePropose = RaftPropose<SearchStateMachine>;
 
 impl RaftStateMachine for SearchStateMachine {
     type EntryType = SearchEntry;
+    type Observable = SearchStorageReader;
 
-    fn apply(&mut self, id: u64, entry: SearchEntry) -> Result<(), Error> {
+    fn apply(&mut self, id: u64, entry: SearchEntry, observer: Option<Box<dyn StateMachineObserver<Self> + Send + Sync>>) -> Result<(), Error>
+    {
         tokio::spawn(self.apply_queue.push(id, entry).map_err(|_| ()));
         Ok(())
     }
@@ -55,7 +57,7 @@ impl SearchStateMachine {
         operation.set_payload(request.take_payload());
         operation.set_id(request.take_document_id());
         entry.set_add_document(operation);
-        let observer = SimpleObserver::new(sender, |_: &Self| IndexDocumentResponse::new());
+        let observer = SimpleObserver::new(sender, |_: &SearchStorageReader| IndexDocumentResponse::new());
         SimplePropose::new_for_group(request.shard_id, entry, observer)
     }
 
@@ -95,7 +97,7 @@ impl SearchStateMachine {
         operation.set_operations(entries.collect());
 
         entry.set_bulk(operation);
-        let observer = SimpleObserver::new(sender, |_: &Self| BulkResponse::new());
+        let observer = SimpleObserver::new(sender, |_: &SearchStorageReader| BulkResponse::new());
         SimplePropose::new_for_group(request.shard_id, entry, observer)
     }
 
@@ -107,7 +109,7 @@ impl SearchStateMachine {
         let mut operation = DeleteDocumentOperation::new();
         operation.set_id(request.take_document_id());
         entry.set_delete_document(operation);
-        let observer = SimpleObserver::new(sender, |_: &Self| {
+        let observer = SimpleObserver::new(sender, |_: &SearchStorageReader| {
             let mut response = DeleteDocumentResponse::new();
             response.success = true;
             response
@@ -119,8 +121,8 @@ impl SearchStateMachine {
         request: SearchRequest,
         sender: Sender<Result<SearchResponse, Error>>,
     ) -> SimplePropose {
-        Self::propose_read(request.shard_id, sender, move |sm: &Self| {
-            sm.storage.reader().search(request)
+        Self::propose_read(request.shard_id, sender, move |sm: &SearchStorageReader| {
+            sm.search(request)
         })
     }
 
@@ -131,7 +133,7 @@ impl SearchStateMachine {
         let mut entry = SearchEntry::new();
         let operation = RefreshOperation::new();
         entry.set_refresh(operation);
-        let observer = SimpleObserver::new(sender, |_: &Self| RefreshResponse::new());
+        let observer = SimpleObserver::new(sender, |_: &SearchStorageReader| RefreshResponse::new());
         SimplePropose::new_for_group(request.shard_id, entry, observer)
     }
 
@@ -139,14 +141,14 @@ impl SearchStateMachine {
         request: GetDocumentRequest,
         sender: Sender<Result<GetDocumentResponse, Error>>,
     ) -> SimplePropose {
-        Self::propose_read(request.shard_id, sender, move |sm: &Self| {
-            sm.storage.reader().get(request.document_id.into())
+        Self::propose_read(request.shard_id, sender, move |sm: &SearchStorageReader| {
+            sm.get(request.document_id.into())
         })
     }
 
     fn propose_read<R, F>(shard_id: u64, sender: Sender<R>, f: F) -> SimplePropose
     where
-        F: FnOnce(&Self) -> R + Send + Sync + 'static,
+        F: FnOnce(&SearchStorageReader) -> R + Send + Sync + 'static,
         R: Send + Sync + 'static,
     {
         // TODO: This should go through the leaseholder and avoid raft altogether
