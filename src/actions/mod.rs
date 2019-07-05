@@ -4,6 +4,7 @@ use futures::prelude::*;
 
 mod action_context;
 mod bulk;
+mod cluster_health;
 mod common;
 mod create_index;
 mod delete_document;
@@ -20,6 +21,7 @@ pub use self::common::*;
 
 pub use self::action_context::ActionContext;
 pub use self::bulk::BulkAction;
+pub use self::cluster_health::ClusterHealthAction;
 pub use self::create_index::CreateIndexAction;
 pub use self::delete_document::DeleteDocumentAction;
 pub use self::delete_index::DeleteIndexAction;

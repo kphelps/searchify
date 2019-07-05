@@ -52,6 +52,10 @@ impl IndexTracker {
         self.by_name.get(&name.to_string(), &self.indices)
     }
 
+    pub fn len(&self) -> usize {
+        self.indices.len()
+    }
+
     fn initialize_indices(&mut self) -> Result<(), Error> {
         self.indices
             .cache()

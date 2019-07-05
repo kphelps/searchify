@@ -50,6 +50,19 @@ impl ShardTracker {
             .collect::<Result<Vec<u64>, Error>>()
     }
 
+    pub fn len(&self) -> usize {
+        self.shards.len()
+    }
+
+    pub fn replica_len(&self) -> usize {
+        self.shards.values().iter().map(|s| s.get_replicas().len()).sum()
+    }
+
+    pub fn unassigned_len(&self) -> usize {
+        // TODO
+        0
+    }
+
     fn delete_shard(&mut self, shard: &ShardState) -> Result<u64, Error> {
         self.shards.delete(&shard.id)?;
         self.update_indices_for_deleted_shard(shard);

@@ -118,6 +118,14 @@ impl RpcClientInner {
         )
     }
 
+    pub fn health(&self) -> impl Future<Item = HealthResponse, Error = Error> {
+        let request = HealthRequest::new();
+        futurize(
+            "health",
+            self.client.health_async_opt(&request, self.options()),
+        )
+    }
+
     pub fn create_index(
         &self,
         name: &str,

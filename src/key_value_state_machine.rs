@@ -207,6 +207,16 @@ impl KeyValueStateMachine {
             .collect()
     }
 
+    pub fn health(&self) -> HealthResponse {
+        let mut response = HealthResponse::new();
+        response.set_number_of_nodes(self.nodes.len() as u64);
+        response.set_indices(self.indices.len() as u64);
+        response.set_replica_sets(self.shards.len() as u64);
+        response.set_active_shards(self.shards.replica_len() as u64);
+        response.set_unassigned_shards(self.shards.unassigned_len() as u64);
+        response
+    }
+
     pub fn read_operation<F, R>(sender: Sender<R>, f: F) -> SimplePropose
     where
         F: FnOnce(&Self) -> R + Send + Sync + 'static,

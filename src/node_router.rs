@@ -301,7 +301,7 @@ impl NodeRouter {
         self.gossip_state.get_client(id)
     }
 
-    fn leader_client(&self) -> Result<RpcClient, SearchError> {
+    pub fn leader_client(&self) -> Result<RpcClient, SearchError> {
         self.gossip_state
             .get_meta_leader_client()
             .map_err(|_| SearchError::LeaderUnavailable)

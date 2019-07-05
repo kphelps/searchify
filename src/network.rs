@@ -158,13 +158,7 @@ impl Internal for InternalServer {
 
     fn health(&mut self, ctx: RpcContext, _req: HealthRequest, sink: UnarySink<HealthResponse>) {
         let (sender, receiver) = channel();
-        let proposal = KeyValueStateMachine::read_operation(sender, move |_| {
-            // TODO
-            let mut response = HealthResponse::new();
-            response.available = true;
-            response.fully_replicated = true;
-            response
-        });
+        let proposal = KeyValueStateMachine::read_operation(sender, move |sm| sm.health());
         propose_api(
             "health",
             &self.kv_raft_router,

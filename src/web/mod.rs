@@ -44,6 +44,7 @@ fn metrics_endpoint() -> impl Responder {
 fn register_actions(cfg: &mut web::ServiceConfig) {
     cfg.route("metrics", web::get().to(metrics_endpoint));
 
+    register_action(cfg, actions::ClusterHealthAction);
     register_action(cfg, actions::ListIndicesAction);
     register_action(cfg, actions::DeleteIndexAction);
     register_action(cfg, actions::DeleteDocumentAction);

@@ -213,8 +213,11 @@ message HealthRequest {
 }
 
 message HealthResponse {
-  bool available = 1;
-  bool fully_replicated = 2;
+  uint64 number_of_nodes = 1;
+  uint64 indices = 2;
+  uint64 replica_sets = 3;
+  uint64 active_shards = 4;
+  uint64 unassigned_shards = 5;
 }
 
 message SequenceState {

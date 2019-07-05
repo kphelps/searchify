@@ -40,6 +40,14 @@ where
         self.cache.keys().cloned().collect()
     }
 
+    pub fn values(&self) -> Vec<V> {
+        self.cache.values().cloned().collect()
+    }
+
+    pub fn len(&self) -> usize {
+        self.cache.len()
+    }
+
     fn init_cache(&mut self) -> Result<(), Error> {
         let mut cache = HashMap::new();
         self.persistent.scan(|k, v| {
