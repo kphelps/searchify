@@ -238,14 +238,16 @@ impl NodeRouter {
 
     pub fn refresh_shard(&self, shard_id: u64) -> impl Future<Item = (), Error = SearchError> {
         let resolver = self.gossip_state.clone();
-        self.get_cached_shard(shard_id).into_future().and_then(move |shard| {
-            let replica_id = shard.replicas.first().unwrap().id;
-            resolver
-                .get_client(replica_id)
-                .into_future()
-                .and_then(move |client| client.refresh_shard(shard.id))
-                .from_err()
-        })
+        self.get_cached_shard(shard_id)
+            .into_future()
+            .and_then(move |shard| {
+                let replica_id = shard.replicas.first().unwrap().id;
+                resolver
+                    .get_client(replica_id)
+                    .into_future()
+                    .and_then(move |client| client.refresh_shard(shard.id))
+                    .from_err()
+            })
     }
 
     pub fn get_shard_for_document(

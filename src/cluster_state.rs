@@ -78,7 +78,9 @@ impl ClusterState {
 
     pub fn get_shard(&self, id: u64) -> Option<ShardState> {
         let locked = self.inner.read().unwrap();
-        locked.shards.get(&id)
+        locked
+            .shards
+            .get(&id)
             .or_else(|| locked.remote_shards.get(&id))
             .cloned()
     }

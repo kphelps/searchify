@@ -65,11 +65,10 @@ where
 {
     receiver
         .for_each(move |work| {
-            let result = func(work.data)
-                .unwrap_or_else(|err| {
-                    error!("Work failed: {}", err);
-                    false
-                });
+            let result = func(work.data).unwrap_or_else(|err| {
+                error!("Work failed: {}", err);
+                false
+            });
             if result {
                 let handle = handle.upgrade().unwrap();
                 handle.lock().unwrap().last_id = work.id;

@@ -30,10 +30,13 @@ impl RaftStateMachine for SearchStateMachine {
         observer: Option<Box<dyn StateMachineObserver<Self> + Send + Sync>>,
     ) -> Result<(), Error> {
         let reader = self.storage.reader();
-        let f = self.apply_queue
+        let f = self
+            .apply_queue
             .push(id, entry)
-            .map(move |_| if let Some(observer) = observer {
-                observer.observe(&reader);
+            .map(move |_| {
+                if let Some(observer) = observer {
+                    observer.observe(&reader);
+                }
             })
             .map_err(|_| ());
         tokio::spawn(f);
