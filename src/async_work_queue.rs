@@ -21,14 +21,14 @@ struct PendingWork<T> {
 }
 
 impl<T> AsyncWorkQueue<T>
-    where T: Send + 'static
+where
+    T: Send + 'static,
 {
     pub fn new<F>(f: F) -> Self
-        where F: Send + FnMut(T) -> Result<(), Error> + 'static
+    where
+        F: Send + FnMut(T) -> Result<bool, Error> + 'static,
     {
-        let inner = Inner {
-            last_id: 0,
-        };
+        let inner = Inner { last_id: 0 };
         let inner_p = Arc::new(Mutex::new(inner));
         let handle = Arc::downgrade(&inner_p);
         let (sender, receiver) = mpsc::unbounded();
@@ -41,8 +41,10 @@ impl<T> AsyncWorkQueue<T>
 
     pub fn push(&self, id: u64, data: T) -> oneshot::Receiver<()> {
         let (sender, receiver) = oneshot::channel();
-        let f = self.sender.clone()
-            .send(PendingWork{ id, data, sender })
+        let f = self
+            .sender
+            .clone()
+            .send(PendingWork { id, data, sender })
             .then(|_| Ok(()));
         tokio::spawn(f);
         receiver
@@ -53,17 +55,25 @@ impl<T> AsyncWorkQueue<T>
     }
 }
 
-fn run_work_queue<F, T>(mut func: F, handle: Weak<Mutex<Inner>>, receiver: mpsc::UnboundedReceiver<PendingWork<T>>)
-    -> impl Future<Item = (), Error = ()>
-where F: FnMut(T) -> Result<(), Error>
+fn run_work_queue<F, T>(
+    mut func: F,
+    handle: Weak<Mutex<Inner>>,
+    receiver: mpsc::UnboundedReceiver<PendingWork<T>>,
+) -> impl Future<Item = (), Error = ()>
+where
+    F: FnMut(T) -> Result<bool, Error>,
 {
     receiver
         .for_each(move |work| {
-            if let Err(err) = func(work.data) {
-                error!("Work failed: {}", err);
+            let result = func(work.data)
+                .unwrap_or_else(|err| {
+                    error!("Work failed: {}", err);
+                    false
+                });
+            if result {
+                let handle = handle.upgrade().unwrap();
+                handle.lock().unwrap().last_id = work.id;
             }
-            let handle = handle.upgrade().unwrap();
-            handle.lock().unwrap().last_id = work.id;
             // if receiver is dropped, we don't care
             let _ = work.sender.send(());
             Ok(())
@@ -79,7 +89,7 @@ mod test {
     #[test]
     fn test_push() {
         tokio::run(futures::future::lazy(move || {
-            let q = AsyncWorkQueue::new(|()| Ok(()));
+            let q = AsyncWorkQueue::new(|()| Ok(true));
             assert_eq!(q.last_handled(), 0);
             let handle = q.push(1, ());
             assert_eq!(q.last_handled(), 0);

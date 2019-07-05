@@ -2,7 +2,9 @@ use crate::async_work_queue::AsyncWorkQueue;
 use crate::document::ExpectedVersion;
 use crate::mappings::Mappings;
 use crate::proto::*;
-use crate::raft::{FutureStateMachineObserver, RaftPropose, RaftStateMachine, StateMachineObserver};
+use crate::raft::{
+    FutureStateMachineObserver, RaftPropose, RaftStateMachine, StateMachineObserver,
+};
 use crate::search_storage::{SearchStorage, SearchStorageReader, SearchStorageWriter};
 use failure::Error;
 use futures::prelude::*;
@@ -21,9 +23,20 @@ impl RaftStateMachine for SearchStateMachine {
     type EntryType = SearchEntry;
     type Observable = SearchStorageReader;
 
-    fn apply(&mut self, id: u64, entry: SearchEntry, observer: Option<Box<dyn StateMachineObserver<Self> + Send + Sync>>) -> Result<(), Error>
-    {
-        tokio::spawn(self.apply_queue.push(id, entry).map_err(|_| ()));
+    fn apply(
+        &mut self,
+        id: u64,
+        entry: SearchEntry,
+        observer: Option<Box<dyn StateMachineObserver<Self> + Send + Sync>>,
+    ) -> Result<(), Error> {
+        let reader = self.storage.reader();
+        let f = self.apply_queue
+            .push(id, entry)
+            .map(move |_| if let Some(observer) = observer {
+                observer.observe(&reader);
+            })
+            .map_err(|_| ());
+        tokio::spawn(f);
         Ok(())
     }
 
@@ -43,9 +56,14 @@ struct SearchEntryApplier {
 impl SearchStateMachine {
     pub fn new(path: impl AsRef<Path>, mappings: Mappings) -> Result<Self, Error> {
         let storage = SearchStorage::new(path, mappings)?;
-        let mut applier = SearchEntryApplier { storage: storage.writer() };
+        let mut applier = SearchEntryApplier {
+            storage: storage.writer(),
+        };
         let apply_queue = AsyncWorkQueue::new(move |entry: SearchEntry| applier.apply(entry));
-        Ok(Self { storage, apply_queue })
+        Ok(Self {
+            storage,
+            apply_queue,
+        })
     }
 
     pub fn propose_add_document(
@@ -57,7 +75,9 @@ impl SearchStateMachine {
         operation.set_payload(request.take_payload());
         operation.set_id(request.take_document_id());
         entry.set_add_document(operation);
-        let observer = SimpleObserver::new(sender, |_: &SearchStorageReader| IndexDocumentResponse::new());
+        let observer = SimpleObserver::new(sender, |_: &SearchStorageReader| {
+            IndexDocumentResponse::new()
+        });
         SimplePropose::new_for_group(request.shard_id, entry, observer)
     }
 
@@ -133,7 +153,8 @@ impl SearchStateMachine {
         let mut entry = SearchEntry::new();
         let operation = RefreshOperation::new();
         entry.set_refresh(operation);
-        let observer = SimpleObserver::new(sender, |_: &SearchStorageReader| RefreshResponse::new());
+        let observer =
+            SimpleObserver::new(sender, |_: &SearchStorageReader| RefreshResponse::new());
         SimplePropose::new_for_group(request.shard_id, entry, observer)
     }
 
@@ -159,10 +180,9 @@ impl SearchStateMachine {
 }
 
 impl SearchEntryApplier {
-
-    fn apply(&mut self, entry: SearchEntry) -> Result<(), Error> {
+    fn apply(&mut self, entry: SearchEntry) -> Result<bool, Error> {
         if entry.operation.is_none() {
-            return Ok(());
+            return Ok(false);
         }
 
         match entry.operation.unwrap() {
@@ -174,12 +194,13 @@ impl SearchEntryApplier {
             }
             SearchEntry_oneof_operation::refresh(_) => {
                 self.refresh()?;
+                return Ok(true);
             }
             SearchEntry_oneof_operation::bulk(bulk) => {
                 self.bulk(bulk)?;
             }
         };
-        Ok(())
+        Ok(false)
     }
 
     fn add_document(&mut self, mut request: AddDocumentOperation) -> Result<(), Error> {

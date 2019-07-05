@@ -45,11 +45,8 @@ lazy_static! {
         &["type"]
     )
     .unwrap();
-    pub static ref RAFT_TICK_HISTOGRAM: Histogram = register_histogram!(
-        "searchify_raft_tick_seconds",
-        "Histogram of raft ticks"
-    )
-    .unwrap();
+    pub static ref RAFT_TICK_HISTOGRAM: Histogram =
+        register_histogram!("searchify_raft_tick_seconds", "Histogram of raft ticks").unwrap();
     pub static ref SEARCH_TIME_HISTOGRAM: HistogramVec = register_histogram_vec!(
         "searchify_search_seconds",
         "Bucketed histogram of time spent in search storage engine",

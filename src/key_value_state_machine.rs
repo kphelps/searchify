@@ -4,7 +4,9 @@ use crate::event_emitter::EventEmitter;
 use crate::index_tracker::IndexTracker;
 use crate::keys::KeySpace;
 use crate::proto::*;
-use crate::raft::{FutureStateMachineObserver, RaftPropose, RaftStateMachine, StateMachineObserver};
+use crate::raft::{
+    FutureStateMachineObserver, RaftPropose, RaftStateMachine, StateMachineObserver,
+};
 use crate::shard_tracker::ShardTracker;
 use crate::storage_engine::StorageEngine;
 use failure::Error;
@@ -33,17 +35,19 @@ impl RaftStateMachine for KeyValueStateMachine {
     type EntryType = KeyValueEntry;
     type Observable = Self;
 
-    fn apply(&mut self, id: u64, entry: KeyValueEntry, observer: Option<Box<dyn StateMachineObserver<Self> + Send + Sync>>) -> Result<(), Error>
-    {
-        if entry.entry.is_none() {
-            return Ok(());
-        }
-
-        match entry.entry.unwrap() {
-            KeyValueEntry_oneof_entry::create_index(req) => self.create_index(req)?,
-            KeyValueEntry_oneof_entry::delete_index(req) => self.delete_index(req)?,
-            KeyValueEntry_oneof_entry::heartbeat(heartbeat) => {
-                self.liveness_heartbeat(heartbeat)?
+    fn apply(
+        &mut self,
+        id: u64,
+        entry: KeyValueEntry,
+        observer: Option<Box<dyn StateMachineObserver<Self> + Send + Sync>>,
+    ) -> Result<(), Error> {
+        if let Some(entry) = entry.entry {
+            match entry {
+                KeyValueEntry_oneof_entry::create_index(req) => self.create_index(req)?,
+                KeyValueEntry_oneof_entry::delete_index(req) => self.delete_index(req)?,
+                KeyValueEntry_oneof_entry::heartbeat(heartbeat) => {
+                    self.liveness_heartbeat(heartbeat)?
+                }
             }
         }
         self.last_applied = id;

@@ -9,6 +9,7 @@ use crate::search_state_machine::SearchStateMachine;
 use crate::storage_engine::StorageEngine;
 use failure::{format_err, Error};
 use futures::prelude::*;
+use log::*;
 use std::boxed::Box;
 use std::path::Path;
 use std::time::Duration;
@@ -117,8 +118,14 @@ fn leader_task(node_router: NodeRouterHandle, shard_id: u64) -> TaskFn {
         let node_router = node_router.clone();
         let fut = Interval::new_interval(Duration::from_secs(5))
             .map_err(|_| ())
-            .for_each(move |_| node_router.refresh_shard(shard_id).map_err(|_| ()))
-            .map_err(|_| ());
+            .for_each(move |_| {
+                node_router.refresh_shard(shard_id).then(|result| {
+                    if let Err(err) = result {
+                        error!("Refresh failed: {}", err);
+                    }
+                    Ok(())
+                })
+            });
         Box::new(fut)
     };
     Box::new(f)

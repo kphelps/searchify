@@ -26,6 +26,7 @@ struct ClusterStateInner {
     indices: HashMap<String, IndexState>,
     // shards assigned to this node
     shards: HashMap<u64, ShardState>,
+    remote_shards: HashMap<u64, ShardState>,
 
     event_emitter: EventEmitter<ClusterStateEvent>,
 }
@@ -40,6 +41,7 @@ impl ClusterState {
             node_id,
             indices: HashMap::new(),
             shards: HashMap::new(),
+            remote_shards: HashMap::new(),
             event_emitter: EventEmitter::new(16),
         };
         Self {
@@ -72,6 +74,13 @@ impl ClusterState {
 
     pub fn get_index(&self, name: &str) -> Option<IndexState> {
         self.inner.read().unwrap().indices.get(name).cloned()
+    }
+
+    pub fn get_shard(&self, id: u64) -> Option<ShardState> {
+        let locked = self.inner.read().unwrap();
+        locked.shards.get(&id)
+            .or_else(|| locked.remote_shards.get(&id))
+            .cloned()
     }
 
     pub fn shards_for_node(&self) -> Vec<ShardState> {
@@ -121,11 +130,14 @@ impl ClusterStateUpdater {
                         state
                             .event_emitter
                             .emit(ClusterStateEvent::ShardAllocated(shard));
+                    } else {
+                        state.remote_shards.insert(id, shard.clone());
                     }
                 } else {
                     if let Some(shard) = state.shards.remove(&id) {
                         info!("Shard deleted: {}", shard.id);
                     }
+                    let _ = state.remote_shards.remove(&id);
                 }
             }
             _ => (),

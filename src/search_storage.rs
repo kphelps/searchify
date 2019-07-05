@@ -5,6 +5,7 @@ use crate::proto::{GetDocumentResponse, SearchHit, SearchRequest, SearchResponse
 use crate::query_api::{QueryValue, SearchQuery, TermQuery, ToQuery};
 use crate::version_tracker::{TrackedVersion, VersionTracker};
 use failure::{Error, Fail};
+use log::*;
 use std::fs::DirBuilder;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -120,11 +121,9 @@ impl SearchStorageWriter {
             locked.refresh()
         })
     }
-
 }
 
 impl WriterInner {
-
     pub fn index(
         &mut self,
         id: &DocumentId,
@@ -161,10 +160,10 @@ impl WriterInner {
     }
 
     pub fn refresh(&mut self) -> Result<(), Error> {
-        self.versions.pre_commmit();
-        self.writer.commit()?;
-        self.versions.post_commit();
-        let _ = self.reader.reload();
+        with_timer("pre_commit", || self.versions.pre_commmit());
+        with_timer("commit", || self.writer.commit())?;
+        with_timer("post_commit", || self.versions.post_commit());
+        let _ = with_timer("reader_reload", || self.reader.reload());
         Ok(())
     }
 
@@ -255,13 +254,15 @@ impl SearchStorageReader {
         hit.set_id(id);
         Ok(hit)
     }
-
 }
 
 fn with_timer<F, R>(name: &'static str, f: F) -> R
-    where F: FnOnce() -> R
+where
+    F: FnOnce() -> R,
 {
-    let timer = SEARCH_TIME_HISTOGRAM.with_label_values(&[name]).start_timer();
+    let timer = SEARCH_TIME_HISTOGRAM
+        .with_label_values(&[name])
+        .start_timer();
     let out = f();
     timer.observe_duration();
     out

@@ -79,7 +79,8 @@ where
 }
 
 pub trait StateMachineObserver<S>
-    where S: RaftStateMachine
+where
+    S: RaftStateMachine,
 {
     fn observe(self: Box<Self>, state_machine: &S::Observable);
 }
@@ -154,8 +155,12 @@ pub trait RaftStateMachine: Sized {
     type EntryType: Message;
     type Observable;
 
-    fn apply(&mut self, id: u64, entry: Self::EntryType, observer: Option<Box<dyn StateMachineObserver<Self> + Send + Sync>>)
-                -> Result<(), Error>;
+    fn apply(
+        &mut self,
+        id: u64,
+        entry: Self::EntryType,
+        observer: Option<Box<dyn StateMachineObserver<Self> + Send + Sync>>,
+    ) -> Result<(), Error>;
     fn peers(&self) -> Result<Vec<u64>, Error>;
     fn last_applied(&self) -> u64;
 }
@@ -553,10 +558,7 @@ where
         Ok(())
     }
 
-    fn handle_conf_change_entry(
-        &mut self,
-        entry: &eraftpb::Entry,
-    ) -> Result<(), Error> {
+    fn handle_conf_change_entry(&mut self, entry: &eraftpb::Entry) -> Result<(), Error> {
         let cc = eraftpb::ConfChange::decode(&entry.data).expect("Valid protobuf");
 
         debug!("ConfChange: {:?}", cc);

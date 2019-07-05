@@ -8,9 +8,9 @@ import uuid
 URL = 'http://localhost'
 PORTS = [8080, 8081, 8082]
 
-LOOPS = 20
-BULK_SIZE = 2000
-THREADS = 20
+LOOPS = 10
+BULK_SIZE = 1000
+THREADS = 100
 INDEX_NAME = 'hello-world'
 
 def build_batch():
@@ -52,7 +52,12 @@ start = time.time()
 run_benchmark()
 end = time.time()
 
-print("Indexed {} documents in {} seconds".format(
-    THREADS * LOOPS * BULK_SIZE,
-    end - start,
+count = THREADS * LOOPS * BULK_SIZE
+dt = end - start
+rate = count / dt
+
+print("Indexed {} documents in {} seconds ({} docs/sec)".format(
+    count,
+    dt,
+    rate
 ))

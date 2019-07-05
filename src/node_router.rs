@@ -238,29 +238,13 @@ impl NodeRouter {
 
     pub fn refresh_shard(&self, shard_id: u64) -> impl Future<Item = (), Error = SearchError> {
         let resolver = self.gossip_state.clone();
-        self.get_shard_by_id(shard_id).and_then(move |shard| {
+        self.get_cached_shard(shard_id).into_future().and_then(move |shard| {
             let replica_id = shard.replicas.first().unwrap().id;
             resolver
                 .get_client(replica_id)
                 .into_future()
                 .and_then(move |client| client.refresh_shard(shard.id))
                 .from_err()
-        })
-    }
-
-    fn get_shard_by_id(
-        &self,
-        shard_id: u64,
-    ) -> impl Future<Item = ShardState, Error = SearchError> {
-        self.list_indices().and_then(move |response| {
-            response
-                .get_indices()
-                .into_iter()
-                .map(|index| index.get_shards())
-                .flatten()
-                .find(|shard| shard.get_id() == shard_id)
-                .cloned()
-                .ok_or(SearchError::ShardNotFound)
         })
     }
 
@@ -302,6 +286,13 @@ impl NodeRouter {
             .upgrade()
             .ok_or(SearchError::ClusterStateUnavailable)
             .and_then(|cs| cs.get_index(index_name).ok_or(SearchError::IndexNotFound))
+    }
+
+    pub fn get_cached_shard(&self, id: u64) -> Result<ShardState, SearchError> {
+        self.cluster_state
+            .upgrade()
+            .ok_or(SearchError::ClusterStateUnavailable)
+            .and_then(|cs| cs.get_shard(id).ok_or(SearchError::ShardNotFound))
     }
 
     fn peer(&self, id: u64) -> Result<RpcClient, Error> {
