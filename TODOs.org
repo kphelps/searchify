@@ -1,12 +1,18 @@
 #+TODO: TODO DOING | DONE
 
 wip notes:
-- observers should be completed when the entry is applied
-- Raft loop should probably be tweaked?
 - RocksDB-level metrics would be useful
 
 !! Replica set failover causes any in-flight requests to time out (and get dropped)
 !! RPC error handling is bad. Need to have a way to serialize app-level errors across the boundary
+
+Thoughts on "Leased" operations:
+- Must skip raft loop for acceptable perf
+- need to handle failover case. Shard failover could cause "lost updates" if we skip raft
+- Gain a lease to a specific shard in the replica set. This shard serves all read traffic?
+- can clients read from a replica? ES seems to think this is OK
+- if so, still need to obtain a lease to know when the replica is fully up to date
+- Ultimately, need to guarantee all reads after a refresh are consistent
 
 * Current Notes
   
@@ -15,7 +21,7 @@ wip notes:
 
 * Release Tasks
   
-** 0.1 [44%]
+** 0.1 [50%]
   :PROPERTIES:
   :COOKIE_DATA: todo recursive
   :END:
@@ -42,11 +48,10 @@ wip notes:
 **** TODO Proper errors
 **** DONE Index Exists
      CLOSED: [2019-06-28 Fri 10:27]
-**** TODO Optimize Get(id)
 *** Clustering [5/7]
 **** DONE Allow nodes to join without joining the master raft group
      CLOSED: [2019-01-20 Sun 11:28]
-**** TODO Allocate unallocated shards when a node joins the cluster
+**** DOING Allocate unallocated shards when a node joins the cluster
 **** DONE Detect when a node leaves the cluster
      CLOSED: [2019-01-20 Sun 10:29]
 **** TODO De-allocate shard when a node leaves the cluster
@@ -80,15 +85,17 @@ wip notes:
      - Strings
      - Longs
      - Objects
-*** Operations [0/5]
+*** Operations [1/5]
 **** TODO Terraform configuration
 **** TODO Deploy cluster to AWS
 **** TODO Baseline perf test
 **** TODO Structured logging
-**** TODO Expose prometheus metrics
-*** Storage [0/2]
+**** DONE Expose prometheus metrics
+     CLOSED: [2019-07-05 Fri 11:58]
+*** Storage [1/2]
 **** TODO Raft Log Compaction
-**** TODO Indexing should be async, not in raft loop
+**** DONE Indexing should be async, not in raft loop
+     CLOSED: [2019-07-05 Fri 11:49]
 *** Tests [1/7]
 **** DONE Search Storage
      CLOSED: [2019-01-26 Sat 10:22]
