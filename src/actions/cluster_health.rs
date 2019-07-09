@@ -1,4 +1,4 @@
-use super::{Action, ActionContext, Index};
+use super::{Action, ActionContext};
 use actix_web::{web::Payload, HttpRequest, HttpResponse};
 use failure::Error;
 use futures::prelude::*;
@@ -7,14 +7,14 @@ use serde::*;
 #[derive(Clone, Copy)]
 pub struct ClusterHealthAction;
 
-#[derive(Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum ClusterStatus {
     Green,
     Yellow,
     Red,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ClusterHealthResponse {
     status: ClusterStatus,
     number_of_nodes: u64,

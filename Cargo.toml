@@ -47,4 +47,6 @@ protoc-grpcio = "1.0"
 tower-grpc-build = { version = "*", features = ["tower-hyper"] }
 
 [dev-dependencies]
+# OpenSSL linking issues on arch... TODO
+reqwest = { version = "*", default-features = false }
 tempfile = "*"

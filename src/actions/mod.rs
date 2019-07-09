@@ -20,18 +20,18 @@ mod search;
 pub use self::common::*;
 
 pub use self::action_context::ActionContext;
-pub use self::bulk::BulkAction;
-pub use self::cluster_health::ClusterHealthAction;
-pub use self::create_index::CreateIndexAction;
-pub use self::delete_document::DeleteDocumentAction;
-pub use self::delete_index::DeleteIndexAction;
-pub use self::get_document::GetDocumentAction;
-pub use self::get_index::GetIndexAction;
-pub use self::index_document::IndexDocumentAction;
-pub use self::index_exists::IndexExistsAction;
-pub use self::list_indices::ListIndicesAction;
-pub use self::refresh::RefreshAction;
-pub use self::search::SearchAction;
+pub use self::bulk::*;
+pub use self::cluster_health::*;
+pub use self::create_index::*;
+pub use self::delete_document::*;
+pub use self::delete_index::*;
+pub use self::get_document::*;
+pub use self::get_index::*;
+pub use self::index_document::*;
+pub use self::index_exists::*;
+pub use self::list_indices::*;
+pub use self::refresh::*;
+pub use self::search::*;
 
 pub trait Action: Copy {
     type Path;

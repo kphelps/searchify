@@ -4,12 +4,14 @@ use self::metrics_middleware::MetricsMiddleware;
 use crate::action_executor::ActionExecutor;
 use crate::actions::{self, Action};
 use crate::config::Config;
+use crate::node_router::SearchError;
 use actix_web::middleware::Logger;
 use actix_web::*;
 use failure::Error;
 use futures::prelude::*;
 use log::*;
 use std::net::SocketAddr;
+use serde::*;
 
 #[derive(Clone)]
 struct WebApi {
@@ -80,4 +82,22 @@ pub fn start_web(config: &Config, action_executor: ActionExecutor) -> Result<(),
         info!("Stopped API");
     });
     Ok(())
+}
+
+#[derive(Serialize)]
+struct ErrorBody {
+    
+}
+
+impl ResponseError for SearchError {
+    fn error_response(&self) -> HttpResponse {
+        let response = match self {
+            SearchError::IndexNotFound => HttpResponse::NotFound(),
+            SearchError::ShardNotFound => HttpResponse::NotFound(),
+            SearchError::ClusterStateUnavailable => HttpResponse::ServiceUnavailable(),
+            SearchError::LeaderUnavailable => HttpResponse::ServiceUnavailable(),
+            SearchError::Error(e) => HttpResponse::InternalServerError(),
+        }
+        HttpResponse::
+    }
 }

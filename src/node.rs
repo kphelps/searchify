@@ -45,7 +45,7 @@ pub fn run(config: &Config) -> Result<(), Error> {
     rt.block_on_all(future::lazy(move || run_system(&config, receiver)))
 }
 
-fn run_system(
+pub fn run_system(
     config: &Config,
     shutdown_signal: oneshot::Receiver<()>,
 ) -> impl Future<Item = (), Error = Error> {

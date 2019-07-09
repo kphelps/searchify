@@ -33,7 +33,7 @@ impl Config {
         Self::default_builder()?.try_into()
     }
 
-    fn default_builder() -> Result<ConfigBuilder, ConfigError> {
+    pub fn default_builder() -> Result<ConfigBuilder, ConfigError> {
         let mut s = ConfigBuilder::new();
         s.set_default("port", 11666)?
             .set_default("storage_root", "./data")?
